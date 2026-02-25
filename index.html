@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-web</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #1a1a2e; --surface: #16213e; --border: #0f3460;
+  --text: #e4e4e4; --muted: #8892a4; --accent: #e94560;
+  --user-bg: #0f3460; --assistant-bg: #1a1a2e;
+  --code-bg: #0d1117; --input-bg: #16213e;
+  --success: #4ade80; --warning: #fbbf24; --error: #f87171;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+  --radius: 8px;
+}
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+a { color: var(--accent); }
+
+/* Layout */
+#app { display: flex; height: 100vh; }
+#sidebar { width: 260px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Sidebar */
+#sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+#sidebar-header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
+#new-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: var(--font); }
+#new-btn:hover { opacity: 0.85; }
+#session-list { flex: 1; overflow-y: auto; padding: 8px; }
+.session-item { padding: 10px 12px; border-radius: var(--radius); cursor: pointer; margin-bottom: 4px; border: 1px solid transparent; }
+.session-item:hover { background: var(--border); }
+.session-item.active { border-color: var(--accent); background: rgba(233, 69, 96, 0.08); }
+.session-item .prompt { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-item .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* Thread */
+#thread { flex: 1; overflow-y: auto; padding: 16px 24px; }
+.message { margin-bottom: 16px; max-width: 900px; }
+.message.user .bubble { background: var(--user-bg); border-radius: var(--radius); padding: 12px 16px; }
+.message.assistant .bubble { background: var(--assistant-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+.message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.5px; }
+.message .content { line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; }
+.message .content code { background: var(--code-bg); padding: 2px 5px; border-radius: 3px; font-size: 13px; }
+.message .content pre { background: var(--code-bg); padding: 12px; border-radius: var(--radius); overflow-x: auto; margin: 8px 0; }
+.message .content pre code { background: none; padding: 0; }
+.tool-call { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin: 6px 0; font-size: 12px; color: var(--muted); }
+.tool-call .tool-name { color: var(--warning); font-weight: 600; }
+.thinking { color: var(--muted); font-style: italic; border-left: 3px solid var(--border); padding-left: 12px; margin: 6px 0; }
+
+/* Status bar */
+#status-bar { padding: 4px 24px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 16px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.status-dot.connected { background: var(--success); }
+.status-dot.disconnected { background: var(--error); }
+.status-dot.streaming { background: var(--warning); animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Input */
+#input-area { padding: 12px 24px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+#input-row { display: flex; gap: 8px; max-width: 900px; }
+#prompt-input { flex: 1; background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-family: var(--font); font-size: 14px; resize: none; min-height: 42px; max-height: 200px; outline: none; }
+#prompt-input:focus { border-color: var(--accent); }
+#send-btn, #abort-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 10px 18px; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 600; white-space: nowrap; }
+#send-btn:disabled { opacity: 0.4; cursor: default; }
+#abort-btn { background: var(--error); }
+
+/* Empty state */
+#empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
+
+/* Responsive */
+@media (max-width: 700px) {
+  #sidebar { display: none; }
+  #thread { padding: 12px; }
+  #input-area { padding: 8px 12px 12px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>pi-web</h1>
+      <button id="new-btn" onclick="newSession()">+ New</button>
+    </div>
+    <div id="session-list"></div>
+  </div>
+  <div id="main">
+    <div id="thread"><div id="empty-state">Start a new session or select one from the sidebar.</div></div>
+    <div id="status-bar">
+      <span><span class="status-dot disconnected" id="ws-dot"></span><span id="ws-status">Disconnected</span></span>
+      <span id="model-status"></span>
+      <span id="stream-status"></span>
+    </div>
+    <div id="input-area">
+      <div id="input-row">
+        <textarea id="prompt-input" rows="1" placeholder="Send a message..." onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button id="send-btn" onclick="sendPrompt()" disabled>Send</button>
+        <button id="abort-btn" onclick="sendAbort()" style="display:none">Stop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───
+let ws = null;
+let isConnected = false;
+let isStreaming = false;
+let activeSessionFile = null;
+let currentMessages = []; // {id, role, parts: [{type, content}]}
+let streamingMessageId = null;
+let sessions = [];
+
+const thread = document.getElementById("thread");
+const emptyState = document.getElementById("empty-state");
+const sendBtn = document.getElementById("send-btn");
+const abortBtn = document.getElementById("abort-btn");
+const input = document.getElementById("prompt-input");
+const wsDot = document.getElementById("ws-dot");
+const wsStatus = document.getElementById("ws-status");
+const modelStatus = document.getElementById("model-status");
+const streamStatus = document.getElementById("stream-status");
+const sessionList = document.getElementById("session-list");
+
+// ─── WebSocket ───
+function connect() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(`${proto}//${location.host}`);
+
+  ws.onopen = () => {
+    isConnected = true;
+    updateStatus();
+  };
+
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === "rpc_event") handleRpcEvent(msg.event);
+    else if (msg.type === "error") showError(msg.message);
+    else if (msg.type === "session_ended") {
+      isStreaming = false;
+      updateStatus();
+    }
+  };
+
+  ws.onclose = () => {
+    isConnected = false;
+    updateStatus();
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {};
+}
+
+function wsSend(obj) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+// ─── Session management ───
+async function loadSessions() {
+  try {
+    const res = await fetch("/api/sessions");
+    sessions = await res.json();
+    renderSessionList();
+  } catch {}
+}
+
+function renderSessionList() {
+  sessionList.innerHTML = sessions.map((s) => {
+    const active = s.file === activeSessionFile ? " active" : "";
+    const label = s.firstPrompt || s.id.slice(0, 8);
+    const time = s.timestamp ? new Date(s.timestamp).toLocaleString() : "";
+    const cwd = s.cwd?.replace(/^\/Users\/[^/]+/, "~") || "";
+    return `<div class="session-item${active}" onclick="switchSession('${s.file.replace(/'/g, "\\'")}')">
+      <div class="prompt">${esc(label)}</div>
+      <div class="meta">${esc(cwd)} · ${s.messageCount} msgs · ${esc(time)}</div>
+    </div>`;
+  }).join("");
+}
+
+function newSession() {
+  // Start a new session with no sessionFile — pi will create one
+  activeSessionFile = null;
+  currentMessages = [];
+  streamingMessageId = null;
+  renderThread();
+  const defaultCwd = sessions.length > 0 ? sessions[0].cwd : "/Users";
+  const cwd = prompt("Working directory:", defaultCwd);
+  if (!cwd) return;
+  wsSend({ type: "start_session", cwd });
+}
+
+function switchSession(file) {
+  activeSessionFile = file;
+  currentMessages = [];
+  streamingMessageId = null;
+  isStreaming = false;
+  renderThread();
+  renderSessionList();
+  wsSend({ type: "start_session", sessionFile: file, cwd: sessions.find(s => s.file === file)?.cwd });
+}
+
+// ─── RPC Event Handling ───
+function handleRpcEvent(event) {
+  if (!event?.type) return;
+
+  switch (event.type) {
+    case "response":
+      if (event.command === "get_state" && event.success) {
+        handleStateUpdate(event.state || event.data || {});
+      }
+      if (event.command === "get_available_models" && event.success) {
+        const models = event.models || event.data?.models || [];
+        const current = models.find(m => m.selected) || models[0];
+        modelStatus.textContent = current ? `Model: ${current.name || current.id}` : "";
+      }
+      break;
+
+    case "agent_start":
+      isStreaming = true;
+      updateStatus();
+      break;
+
+    case "agent_end":
+      isStreaming = false;
+      streamingMessageId = null;
+      updateStatus();
+      loadSessions();
+      break;
+
+    case "message_start": {
+      const msg = event.message;
+      if (!msg) break;
+      const id = msg.id || crypto.randomUUID();
+      const role = msg.role || "assistant";
+      const entry = { id, role, parts: [] };
+      // Parse initial content if present
+      if (msg.content) {
+        parseContentIntoParts(msg.content, entry.parts);
+      }
+      currentMessages.push(entry);
+      if (role === "assistant") streamingMessageId = id;
+      renderThread();
+      scrollToBottom();
+      break;
+    }
+
+    case "message_update": {
+      const target = streamingMessageId
+        ? currentMessages.find(m => m.id === streamingMessageId)
+        : currentMessages[currentMessages.length - 1];
+      if (!target) break;
+
+      if (event.text) {
+        let textPart = target.parts.find(p => p.type === "text" && !p.done);
+        if (!textPart) { textPart = { type: "text", content: "" }; target.parts.push(textPart); }
+        textPart.content += event.text;
+      }
+      if (event.thinking) {
+        let thinkPart = target.parts.find(p => p.type === "thinking" && !p.done);
+        if (!thinkPart) { thinkPart = { type: "thinking", content: "" }; target.parts.push(thinkPart); }
+        thinkPart.content += event.thinking;
+      }
+      renderThread();
+      scrollToBottom();
+      break;
+    }
+
+    case "message_end":
+      if (streamingMessageId) {
+        const msg = currentMessages.find(m => m.id === streamingMessageId);
+        if (msg) msg.parts.forEach(p => p.done = true);
+      }
+      renderThread();
+      break;
+
+    case "tool_execution_start": {
+      const target = currentMessages.find(m => m.id === streamingMessageId) || currentMessages[currentMessages.length - 1];
+      if (!target) break;
+      target.parts.push({ type: "tool", name: event.name || event.tool || "tool", args: event.args, content: "", done: false, id: event.id });
+      renderThread();
+      scrollToBottom();
+      break;
+    }
+
+    case "tool_execution_update": {
+      const target = currentMessages.find(m => m.id === streamingMessageId) || currentMessages[currentMessages.length - 1];
+      if (!target) break;
+      const tool = [...target.parts].reverse().find(p => p.type === "tool" && !p.done);
+      if (tool && event.output) tool.content += event.output;
+      break;
+    }
+
+    case "tool_execution_end": {
+      const target = currentMessages.find(m => m.id === streamingMessageId) || currentMessages[currentMessages.length - 1];
+      if (!target) break;
+      const tool = [...target.parts].reverse().find(p => p.type === "tool" && !p.done);
+      if (tool) {
+        tool.done = true;
+        if (event.output) tool.content = event.output;
+      }
+      renderThread();
+      break;
+    }
+
+    case "state_changed":
+    case "state_update":
+      if (event.state) handleStateUpdate(event.state);
+      break;
+
+    case "model_changed":
+      if (event.model) modelStatus.textContent = `Model: ${event.model.name || event.model.id || event.model}`;
+      break;
+
+    case "rpc_error":
+    case "rpc_process_crashed":
+      showError(event.message || "RPC process error");
+      isStreaming = false;
+      updateStatus();
+      break;
+  }
+}
+
+function handleStateUpdate(state) {
+  if (state.messages?.length) {
+    currentMessages = [];
+    for (const msg of state.messages) {
+      const entry = { id: msg.id || crypto.randomUUID(), role: msg.role || "unknown", parts: [] };
+      if (msg.content) parseContentIntoParts(msg.content, entry.parts);
+      currentMessages.push(entry);
+    }
+    renderThread();
+    scrollToBottom();
+  }
+  if (state.model) {
+    modelStatus.textContent = `Model: ${state.model.name || state.model.id || state.model}`;
+  }
+}
+
+function parseContentIntoParts(content, parts) {
+  if (typeof content === "string") {
+    parts.push({ type: "text", content, done: true });
+    return;
+  }
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (block.type === "text" && block.text) {
+      parts.push({ type: "text", content: block.text, done: true });
+    } else if (block.type === "thinking" && block.thinking) {
+      parts.push({ type: "thinking", content: block.thinking, done: true });
+    } else if (block.type === "toolCall" || block.type === "tool_call" || block.type === "tool_use") {
+      parts.push({ type: "tool", name: block.name || block.toolName || "tool", args: block.args || block.input, content: block.output || "", done: true });
+    }
+  }
+}
+
+// ─── Rendering ───
+function renderThread() {
+  if (currentMessages.length === 0) {
+    thread.innerHTML = '<div id="empty-state">Start a new session or select one from the sidebar.</div>';
+    return;
+  }
+
+  thread.innerHTML = currentMessages.map((msg) => {
+    const roleClass = msg.role === "user" ? "user" : "assistant";
+    const roleLabel = msg.role === "user" ? "You" : "Assistant";
+    const partsHtml = msg.parts.map(renderPart).join("");
+    return `<div class="message ${roleClass}"><div class="role">${roleLabel}</div><div class="bubble"><div class="content">${partsHtml}</div></div></div>`;
+  }).join("");
+}
+
+function renderPart(part) {
+  if (part.type === "text") return formatText(part.content || "");
+  if (part.type === "thinking") return `<div class="thinking">${esc(part.content || "")}</div>`;
+  if (part.type === "tool") {
+    const args = part.args ? (typeof part.args === "string" ? part.args : JSON.stringify(part.args, null, 2)) : "";
+    const preview = args.length > 200 ? args.slice(0, 200) + "..." : args;
+    return `<div class="tool-call"><span class="tool-name">${esc(part.name)}</span> ${esc(preview)}</div>`;
+  }
+  return "";
+}
+
+function formatText(text) {
+  // Minimal markdown: code blocks, inline code, bold, italic
+  let out = esc(text);
+  // Code blocks
+  out = out.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return out;
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
+}
+
+function esc(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// ─── Input ───
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 200) + "px";
+}
+
+function sendPrompt() {
+  const text = input.value.trim();
+  if (!text || !isConnected) return;
+
+  // Add user message immediately
+  currentMessages.push({ id: crypto.randomUUID(), role: "user", parts: [{ type: "text", content: text, done: true }] });
+  renderThread();
+  scrollToBottom();
+
+  wsSend({ type: "rpc_command", command: { type: "prompt", text, id: `web-${Date.now()}` } });
+  input.value = "";
+  autoResize(input);
+}
+
+function sendAbort() {
+  wsSend({ type: "rpc_command", command: { type: "abort", id: `abort-${Date.now()}` } });
+}
+
+function showError(msg) {
+  console.error("[pi-web]", msg);
+}
+
+// ─── Status ───
+function updateStatus() {
+  wsDot.className = "status-dot " + (isStreaming ? "streaming" : isConnected ? "connected" : "disconnected");
+  wsStatus.textContent = isStreaming ? "Streaming" : isConnected ? "Connected" : "Disconnected";
+  streamStatus.textContent = isStreaming ? "Agent is responding..." : "";
+  sendBtn.disabled = !isConnected || isStreaming;
+  sendBtn.style.display = isStreaming ? "none" : "";
+  abortBtn.style.display = isStreaming ? "" : "none";
+}
+
+// ─── Init ───
+connect();
+loadSessions();
+</script>
+</body>
+</html>

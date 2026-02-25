@@ -1,0 +1,17 @@
+{
+  "name": "pi-web",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal web UI for pi coding agent",
+  "scripts": {
+    "start": "node --experimental-strip-types server.ts",
+    "dev": "node --watch --experimental-strip-types server.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14",
+    "@types/node": "^22.0.0"
+  }
+}
