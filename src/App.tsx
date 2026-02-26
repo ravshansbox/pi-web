@@ -644,18 +644,19 @@ export default function App() {
             <textarea
               ref={inputRef}
               rows={1}
-              placeholder="Send a message..."
+              placeholder={hasActiveSession ? "Send a message..." : "Select a session to start"}
+              disabled={!hasActiveSession}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
               }}
-              className="flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent"
+              className="flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
             />
             <div className="flex flex-row gap-1 flex-shrink-0">
               <button
                 onClick={sendPrompt}
-                disabled={!isConnected}
+                disabled={!isConnected || !hasActiveSession}
                 title={isStreaming ? "Queue message" : "Send"}
                 className="relative bg-pi-accent text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
@@ -670,7 +671,7 @@ export default function App() {
               </button>
               <button
                 onClick={sendAbort}
-                disabled={!isStreaming}
+                disabled={!isStreaming || !hasActiveSession}
                 title="Stop"
                 className="bg-pi-error text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
