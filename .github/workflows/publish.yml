@@ -79,7 +79,6 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
-        run: npm publish --access public
+        run: npm publish --access public --provenance
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
