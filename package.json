@@ -3,6 +3,10 @@
   "version": "0.1.5",
   "type": "module",
   "description": "Web UI for the pi coding agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ravshansbox/pi-web.git"
+  },
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
