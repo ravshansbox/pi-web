@@ -2,14 +2,25 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const { version } = JSON.parse(readFileSync("./package.json", "utf-8"));
+const pkgPath = fileURLToPath(new URL("./package.json", import.meta.url));
+const { version } = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
-  plugins: [tailwindcss(), react()],
+  plugins: [
+    tailwindcss(),
+    react(),
+    {
+      name: "watch-package-json",
+      buildStart() {
+        this.addWatchFile(pkgPath);
+      },
+    },
+  ],
   server: {
     port: 5173,
     proxy: {
