@@ -58,8 +58,11 @@ jobs:
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
         run: |
+          npm --version
           echo "registry=https://registry.npmjs.org/" > ~/.npmrc
-          npm publish --access public --provenance
+          cat ~/.npmrc
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
+          npm publish --access public
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
 
