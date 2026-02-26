@@ -46,6 +46,12 @@ type Model = {
   id: string;
   name: string;
   provider: string;
+  contextWindow?: number;
+};
+
+type SessionStats = {
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost: number;
 };
 
 const WS_BASE = import.meta.env.DEV
@@ -86,6 +92,7 @@ export default function App() {
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [promptQueue, setPromptQueue] = useState<string[]>([]);
+  const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -219,6 +226,10 @@ export default function App() {
     wsSend({ type: "rpc_command", command: { type: "get_state", id: "get_state" } });
   }
 
+  function requestStats() {
+    wsSend({ type: "rpc_command", command: { type: "get_session_stats", id: "get_session_stats" } });
+  }
+
   function scheduleRequestModels() {
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     modelsRetryRef.current = window.setTimeout(requestModels, 800);
@@ -285,7 +296,7 @@ export default function App() {
         if (event.command === "get_state") {
           const model = event.data?.model;
           if (model) {
-            setCurrentModel({ id: model.id, name: model.name, provider: model.provider });
+            setCurrentModel({ id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow });
             setSelectedProvider(model.provider);
             if (availableModelsRef.current.length > 0) {
               if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
@@ -296,7 +307,10 @@ export default function App() {
         }
         if (event.command === "set_model" && event.success) {
           const model = event.data;
-          if (model) setCurrentModel({ id: model.id, name: model.name, provider: model.provider });
+          if (model) setCurrentModel({ id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow });
+        }
+        if (event.command === "get_session_stats" && event.success) {
+          setSessionStats(event.data);
         }
         break;
       }
@@ -309,6 +323,7 @@ export default function App() {
         setIsStreaming(false);
         streamingMessageIdRef.current = null;
         loadSessions();
+        requestStats();
         if (availableModelsRef.current.length === 0 || !currentModelRef.current) scheduleRequestModels();
         setPromptQueue((q) => {
           if (q.length === 0) return q;
@@ -448,6 +463,7 @@ export default function App() {
     setAvailableModels([]);
     setCurrentModel(null);
     setSelectedProvider("");
+    setSessionStats(null);
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     inputRef.current?.focus();
 
@@ -485,6 +501,7 @@ export default function App() {
     setAvailableModels([]);
     setCurrentModel(null);
     setSelectedProvider("");
+    setSessionStats(null);
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     if (startSession(cwd, null)) scheduleRequestModels();
     inputRef.current?.focus();
@@ -635,6 +652,20 @@ export default function App() {
           )}
           {availableModels.length === 0 && currentModel && (
             <span>{currentModel.name}</span>
+          )}
+          {sessionStats && (
+            <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
+              {sessionStats.tokens.input > 0 && <span>↑{formatTokens(sessionStats.tokens.input)}</span>}
+              {sessionStats.tokens.output > 0 && <span>↓{formatTokens(sessionStats.tokens.output)}</span>}
+              {sessionStats.tokens.cacheRead > 0 && <span>R{formatTokens(sessionStats.tokens.cacheRead)}</span>}
+              {sessionStats.tokens.cacheWrite > 0 && <span>W{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
+              {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
+              {currentModel?.contextWindow && sessionStats.tokens.input > 0 && (() => {
+                const pct = (sessionStats.tokens.input / currentModel.contextWindow!) * 100;
+                const color = pct > 90 ? "text-pi-error" : pct > 70 ? "text-pi-warning" : "";
+                return <span className={color}>{pct.toFixed(1)}%/{formatTokens(currentModel.contextWindow!)}</span>;
+              })()}
+            </span>
           )}
           {isStreaming && <span>responding{promptQueue.length > 0 ? ` · ${promptQueue.length} queued` : ""}</span>}
         </div>
@@ -953,4 +984,12 @@ function escapeHtml(text: string): string {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(n / 1_000_000)}M`;
 }
