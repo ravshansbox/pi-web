@@ -29,12 +29,8 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check.outputs.skip == 'false'
         with:
-          node-version: 22
+          node-version: 25
           registry-url: https://registry.npmjs.org
-
-      - name: Upgrade npm
-        if: steps.check.outputs.skip == 'false'
-        run: npm install -g npm@latest
 
       - name: Install
         if: steps.check.outputs.skip == 'false'
