@@ -6,6 +6,19 @@ import { WebSocketServer, WebSocket } from "ws";
 import { RpcSession } from "./rpc.js";
 import { listSessions, readSessionMessages } from "./sessions.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(`
+pi-web - Web UI for the pi coding agent
+
+Usage: pi-web [options]
+
+Options:
+  --port <number>   Port to listen on (default: 3100, env: PORT)
+  --host <string>   Host to bind to (default: localhost, env: HOST)
+  -h, --help        Show this help message
+  `.trim());
+    process.exit(0);
+}
 function getArg(name) {
     const flag = `--${name}=`;
     const pair = process.argv.find((a) => a.startsWith(flag));
