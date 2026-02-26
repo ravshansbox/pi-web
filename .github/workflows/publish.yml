@@ -58,10 +58,11 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
-        run: npm publish --access public --provenance
+        run: |
+          echo "registry=https://registry.npmjs.org/" > /tmp/pi-web-npmrc
+          npm publish --access public --provenance --userconfig /tmp/pi-web-npmrc
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
-          NPM_CONFIG_USERCONFIG: /dev/null
 
       - name: Commit, tag and push
         if: steps.check.outputs.skip == 'false'
