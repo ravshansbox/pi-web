@@ -59,8 +59,11 @@ jobs:
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
         run: |
-          echo "registry=https://registry.npmjs.org/" > /tmp/pi-web-npmrc
-          npm publish --access public --provenance --userconfig /tmp/pi-web-npmrc
+          NPMRC="${NPM_CONFIG_USERCONFIG}"
+          sed -i '/authToken/d' "$NPMRC"
+          echo "registry=https://registry.npmjs.org/" >> "$NPMRC"
+          cat "$NPMRC"
+          npm publish --access public
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
 
