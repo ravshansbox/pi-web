@@ -1,21 +1,48 @@
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { RpcSession } from "./rpc.ts";
-import { listSessions, cwdToSessionDir, readSessionMessages } from "./sessions.ts";
+import { RpcSession } from "./rpc.js";
+import { listSessions, readSessionMessages } from "./sessions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const PI_CMD = process.env.PI_CMD || "npx -y @mariozechner/pi-coding-agent@latest";
+const isDev = process.argv.includes("--watch") || process.env.NODE_ENV === "development";
 
-const html = readFileSync(join(__dirname, "index.html"), "utf-8");
+const distDir = join(__dirname, "dist");
+const htmlPath = join(distDir, "index.html");
+const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, "utf-8");
+
+const contentTypes: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico": "image/x-icon",
+};
+
+function serveFile(filePath: string, res: any) {
+  const ext = extname(filePath).toLowerCase();
+  res.writeHead(200, { "Content-Type": contentTypes[ext] || "application/octet-stream" });
+  createReadStream(filePath).pipe(res);
+}
 
 const server = createServer((req, res) => {
   if (req.url === "/" || req.url === "/index.html") {
+    if (!existsSync(htmlPath)) {
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end("Frontend not built. Run: npm run build");
+      return;
+    }
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(html);
+    res.end(htmlCache ?? readFileSync(htmlPath, "utf-8"));
     return;
   }
 
@@ -42,6 +69,19 @@ const server = createServer((req, res) => {
       res.end(JSON.stringify({ error: "file parameter required" }));
       return;
     }
+
+    if (req.method === "DELETE") {
+      try {
+        unlinkSync(file);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(err) }));
+      }
+      return;
+    }
+
     readSessionMessages(file)
       .then((messages) => {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -54,70 +94,58 @@ const server = createServer((req, res) => {
     return;
   }
 
-  res.writeHead(404);
+  if (req.url) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const safePath = normalize(url.pathname).replace(/^(\.\.[/\\])+/, "").replace(/^[/\\]+/, "");
+    const filePath = join(distDir, safePath);
+    if (filePath.startsWith(distDir) && existsSync(filePath) && statSync(filePath).isFile()) {
+      serveFile(filePath, res);
+      return;
+    }
+  }
+
+  res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });
 
 const wss = new WebSocketServer({ server });
-
-// Track active RPC sessions by WebSocket
 const rpcSessions = new Map<WebSocket, RpcSession>();
 
 wss.on("connection", (ws: WebSocket) => {
   ws.on("message", (raw) => {
     let msg: any;
-    try {
-      msg = JSON.parse(String(raw));
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(String(raw)); } catch { return; }
 
     if (msg.type === "start_session") {
-      // Kill old session if any
       rpcSessions.get(ws)?.kill();
-
-      const cwd = msg.cwd || process.env.HOME || "/";
-      const sessionFile = msg.sessionFile || undefined;
-
       const rpc = new RpcSession({
         piCmd: PI_CMD,
-        cwd,
-        sessionFile,
+        cwd: msg.cwd || process.env.HOME || "/",
+        sessionFile: msg.sessionFile || undefined,
         onEvent: (event) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "rpc_event", event }));
-          }
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "rpc_event", event }));
         },
         onError: (error) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "error", message: error }));
-          }
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "error", message: error }));
         },
         onExit: (code) => {
           rpcSessions.delete(ws);
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "session_ended", code }));
-          }
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "session_ended", code }));
         },
       });
-
       rpcSessions.set(ws, rpc);
       return;
     }
 
     if (msg.type === "rpc_command") {
       const rpc = rpcSessions.get(ws);
-      if (!rpc) {
-        ws.send(JSON.stringify({ type: "error", message: "No active session" }));
-        return;
-      }
+      if (!rpc) { ws.send(JSON.stringify({ type: "error", message: "No active session" })); return; }
       rpc.send(msg.command);
       return;
     }
 
     if (msg.type === "ping") {
       ws.send(JSON.stringify({ type: "pong" }));
-      return;
     }
   });
 

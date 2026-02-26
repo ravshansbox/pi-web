@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-pi-accent:        #5a8080;
+  --color-pi-border:        #547da7;
+  --color-pi-border-muted:  #b0b0b0;
+  --color-pi-success:       #588458;
+  --color-pi-error:         #aa5555;
+  --color-pi-warning:       #9a7326;
+  --color-pi-muted:         #6c6c6c;
+  --color-pi-dim:           #767676;
+  --color-pi-user-bg:       #e8e8e8;
+  --color-pi-tool-pending:  #e8e8f0;
+  --color-pi-tool-success:  #e8f0e8;
+  --color-pi-tool-error:    #f0e8e8;
+  --color-pi-md-heading:    #9a7326;
+  --color-pi-md-link:       #547da7;
+  --color-pi-md-code:       #5a8080;
+  --color-pi-md-code-block: #588458;
+  --color-pi-tool-output:   #6c6c6c;
+  --color-pi-page-bg:       #f8f8f8;
+  --color-pi-card-bg:       #ffffff;
+  --color-syntax-comment:   #008000;
+  --color-syntax-keyword:   #0000ff;
+  --color-syntax-fn:        #795e26;
+  --color-syntax-var:       #001080;
+  --color-syntax-string:    #a31515;
+  --color-syntax-number:    #098658;
+  --color-syntax-type:      #267f99;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1s infinite;
+}

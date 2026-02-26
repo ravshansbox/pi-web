@@ -38,11 +38,8 @@ export class RpcSession {
         this.buffer = this.buffer.slice(idx + 1);
         if (line.length > 0) {
           try {
-            const event = JSON.parse(line);
-            this.opts.onEvent(event);
-          } catch {
-            // non-JSON line from pi, ignore
-          }
+            this.opts.onEvent(JSON.parse(line));
+          } catch {}
         }
         idx = this.buffer.indexOf("\n");
       }
@@ -53,17 +50,11 @@ export class RpcSession {
       if (msg) this.opts.onError(msg);
     });
 
-    this.proc.on("error", (err) => {
-      this.opts.onError(err.message);
-    });
+    this.proc.on("error", (err) => this.opts.onError(err.message));
+    this.proc.on("exit", (code) => this.opts.onExit(code));
 
-    this.proc.on("exit", (code) => {
-      this.opts.onExit(code);
-    });
-
-    // If a session file was provided, switch to it
     if (opts.sessionFile) {
-      this.send({ type: "switch_session", sessionFile: opts.sessionFile });
+      this.send({ type: "switch_session", sessionPath: opts.sessionFile });
     }
   }
 
@@ -77,9 +68,7 @@ export class RpcSession {
     this.killed = true;
     try {
       this.proc.kill("SIGTERM");
-      setTimeout(() => {
-        try { this.proc.kill("SIGKILL"); } catch {}
-      }, 2000);
+      setTimeout(() => { try { this.proc.kill("SIGKILL"); } catch {} }, 2000);
     } catch {}
   }
 }

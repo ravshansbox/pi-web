@@ -1,5 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
@@ -15,15 +15,20 @@ export interface SessionSummary {
   messageCount: number;
 }
 
-export function cwdToSessionDir(cwd: string): string {
-  // /Users/foo/bar → --Users-foo-bar--
+export interface ParsedMessage {
+  id: string;
+  role: string;
+  content: any;
+  timestamp?: string;
+  model?: string;
+  provider?: string;
+}
+
+function cwdToSessionDir(cwd: string): string {
   return "-" + cwd.replace(/\//g, "-") + "-";
 }
 
-export async function listSessions(opts: {
-  cwd?: string;
-  limit?: number;
-}): Promise<SessionSummary[]> {
+export async function listSessions(opts: { cwd?: string; limit?: number }): Promise<SessionSummary[]> {
   const { cwd, limit = 30 } = opts;
   const results: SessionSummary[] = [];
 
@@ -42,7 +47,6 @@ export async function listSessions(opts: {
         continue;
       }
 
-      // Sort by filename (timestamp-based) descending
       files.sort((a, b) => b.localeCompare(a));
 
       for (const file of files) {
@@ -51,58 +55,64 @@ export async function listSessions(opts: {
         try {
           const info = await readSessionHeader(filePath);
           if (info) results.push(info);
-        } catch {
-          // skip unreadable
-        }
+        } catch {}
       }
       if (results.length >= limit) break;
     }
-  } catch {
-    // sessions dir might not exist
-  }
+  } catch {}
 
   results.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return results.slice(0, limit);
-}
-
-export interface ParsedMessage {
-  id: string;
-  role: string;
-  content: any;
-  timestamp?: string;
-  model?: string;
 }
 
 export async function readSessionMessages(filePath: string): Promise<ParsedMessage[]> {
   const stream = createReadStream(filePath, { encoding: "utf8" });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const messages: ParsedMessage[] = [];
+  const toolResults = new Map<string, string>();
 
   try {
     for await (const line of rl) {
       const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (!trimmed.startsWith('{"type":"message"')) continue;
+      if (!trimmed || !trimmed.startsWith('{"type":"message"')) continue;
       try {
         const entry = JSON.parse(trimmed);
         if (entry.type !== "message" || !entry.message) continue;
         const msg = entry.message;
         const role = msg.role;
         if (!role || role === "system") continue;
-        // Skip tool_result entries — they are folded into assistant tool calls
-        if (role === "toolResult" || role === "tool_result" || role === "tool") continue;
+
+        if (role === "toolResult" || role === "tool_result") {
+          const id = msg.toolCallId;
+          const text = msg.content?.[0]?.text ?? "";
+          if (id) toolResults.set(id, text);
+          continue;
+        }
+
+        if (role === "tool") continue;
+
         messages.push({
           id: entry.id || crypto.randomUUID(),
           role,
           content: msg.content,
           timestamp: entry.timestamp || msg.timestamp,
           model: msg.model || msg.modelId,
+          provider: msg.provider,
         });
       } catch {}
     }
   } finally {
     rl.close();
     stream.destroy();
+  }
+
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === "toolCall" && block.id && toolResults.has(block.id)) {
+        block.result = toolResults.get(block.id);
+      }
+    }
   }
 
   return messages;
@@ -124,10 +134,7 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
       if (!header) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed.type === "session") {
-            header = parsed;
-            continue;
-          }
+          if (parsed.type === "session") { header = parsed; continue; }
         } catch {}
       }
 
