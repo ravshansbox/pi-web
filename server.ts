@@ -7,7 +7,17 @@ import { RpcSession } from "./rpc.js";
 import { listSessions, readSessionMessages } from "./sessions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.PORT || "3100", 10);
+function getArg(name: string): string | undefined {
+  const flag = `--${name}=`;
+  const pair = process.argv.find((a) => a.startsWith(flag));
+  if (pair) return pair.slice(flag.length);
+  const idx = process.argv.indexOf(`--${name}`);
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith("--")) return process.argv[idx + 1];
+  return undefined;
+}
+
+const PORT = parseInt(getArg("port") || process.env.PORT || "3100", 10);
+const HOST = getArg("host") || process.env.HOST || "localhost";
 const PI_CMD = process.env.PI_CMD || "npx -y @mariozechner/pi-coding-agent@latest";
 const isDev = process.argv.includes("--watch") || process.env.NODE_ENV === "development";
 
@@ -155,6 +165,6 @@ wss.on("connection", (ws: WebSocket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`pi-web running at http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`pi-web running at http://${HOST}:${PORT}`);
 });
