@@ -92,6 +92,7 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  const modelsRetryRef = useRef<number | null>(null);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const activeSessionFileRef = useRef<string | null>(null);
   const hasActiveSessionRef = useRef(false);
@@ -214,6 +215,11 @@ export default function App() {
     wsSend({ type: "rpc_command", command: { type: "get_state", id: "get_state" } });
   }
 
+  function scheduleRequestModels(delay = 500) {
+    if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+    modelsRetryRef.current = window.setTimeout(requestModels, delay);
+  }
+
   async function loadSessions() {
     try {
       const res = await fetch("/api/sessions");
@@ -259,17 +265,23 @@ export default function App() {
 
     switch (event.type) {
       case "response": {
-        if (event.command === "get_available_models" && event.success) {
+        if (event.command === "get_available_models") {
           const models: Model[] = (event.data?.models ?? []).map((m: any) => ({
             id: m.id, name: m.name, provider: m.provider,
           }));
-          setAvailableModels(models);
+          if (models.length > 0) {
+            setAvailableModels(models);
+          } else {
+            scheduleRequestModels(1000);
+          }
         }
-        if (event.command === "get_state" && event.success) {
+        if (event.command === "get_state") {
           const model = event.data?.model;
           if (model) {
             setCurrentModel({ id: model.id, name: model.name, provider: model.provider });
             setSelectedProvider(model.provider);
+          } else {
+            scheduleRequestModels(1000);
           }
         }
         if (event.command === "set_model" && event.success) {
@@ -287,6 +299,7 @@ export default function App() {
         setIsStreaming(false);
         streamingMessageIdRef.current = null;
         loadSessions();
+        setAvailableModels((prev) => { if (prev.length === 0) scheduleRequestModels(0); return prev; });
         setPromptQueue((q) => {
           if (q.length === 0) return q;
           const [next, ...rest] = q;
@@ -449,7 +462,7 @@ export default function App() {
     } catch {}
 
     const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
-    if (startSession(cwd, file)) setTimeout(requestModels, 1000);
+    if (startSession(cwd, file)) scheduleRequestModels();
   }
 
   function newSessionInFolder(cwd: string) {
@@ -461,7 +474,7 @@ export default function App() {
     setAvailableModels([]);
     setCurrentModel(null);
     setSelectedProvider("");
-    if (startSession(cwd, null)) setTimeout(requestModels, 1000);
+    if (startSession(cwd, null)) scheduleRequestModels();
     inputRef.current?.focus();
   }
 
