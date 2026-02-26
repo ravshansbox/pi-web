@@ -93,6 +93,8 @@ export default function App() {
   const streamingMessageIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const modelsRetryRef = useRef<number | null>(null);
+  const availableModelsRef = useRef<Model[]>([]);
+  const currentModelRef = useRef<Model | null>(null);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const activeSessionFileRef = useRef<string | null>(null);
   const hasActiveSessionRef = useRef(false);
@@ -101,6 +103,8 @@ export default function App() {
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   useEffect(() => { activeSessionFileRef.current = activeSessionFile; }, [activeSessionFile]);
   useEffect(() => { hasActiveSessionRef.current = hasActiveSession; }, [hasActiveSession]);
+  useEffect(() => { availableModelsRef.current = availableModels; }, [availableModels]);
+  useEffect(() => { currentModelRef.current = currentModel; }, [currentModel]);
 
   useEffect(() => {
     connect();
@@ -215,9 +219,9 @@ export default function App() {
     wsSend({ type: "rpc_command", command: { type: "get_state", id: "get_state" } });
   }
 
-  function scheduleRequestModels(delay = 500) {
+  function scheduleRequestModels() {
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-    modelsRetryRef.current = window.setTimeout(requestModels, delay);
+    modelsRetryRef.current = window.setTimeout(requestModels, 800);
   }
 
   async function loadSessions() {
@@ -271,8 +275,11 @@ export default function App() {
           }));
           if (models.length > 0) {
             setAvailableModels(models);
+            if (currentModelRef.current) {
+              if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+            }
           } else {
-            scheduleRequestModels(1000);
+            scheduleRequestModels();
           }
         }
         if (event.command === "get_state") {
@@ -280,8 +287,11 @@ export default function App() {
           if (model) {
             setCurrentModel({ id: model.id, name: model.name, provider: model.provider });
             setSelectedProvider(model.provider);
+            if (availableModelsRef.current.length > 0) {
+              if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+            }
           } else {
-            scheduleRequestModels(1000);
+            scheduleRequestModels();
           }
         }
         if (event.command === "set_model" && event.success) {
@@ -299,7 +309,7 @@ export default function App() {
         setIsStreaming(false);
         streamingMessageIdRef.current = null;
         loadSessions();
-        setAvailableModels((prev) => { if (prev.length === 0) scheduleRequestModels(0); return prev; });
+        if (availableModelsRef.current.length === 0 || !currentModelRef.current) scheduleRequestModels();
         setPromptQueue((q) => {
           if (q.length === 0) return q;
           const [next, ...rest] = q;
@@ -438,6 +448,7 @@ export default function App() {
     setAvailableModels([]);
     setCurrentModel(null);
     setSelectedProvider("");
+    if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     inputRef.current?.focus();
 
     try {
@@ -474,6 +485,7 @@ export default function App() {
     setAvailableModels([]);
     setCurrentModel(null);
     setSelectedProvider("");
+    if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     if (startSession(cwd, null)) scheduleRequestModels();
     inputRef.current?.focus();
   }
