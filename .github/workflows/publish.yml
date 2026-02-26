@@ -32,6 +32,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm
+        if: steps.check.outputs.skip == 'false'
+        run: npm install -g npm@latest
+
       - name: Install
         if: steps.check.outputs.skip == 'false'
         run: npm ci
@@ -60,7 +64,6 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_IGNORE_SCRIPTS: true
 
       - name: Commit, tag and push
