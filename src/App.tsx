@@ -556,7 +556,7 @@ export default function App() {
     <div className="flex flex-col md:flex-row h-screen bg-pi-page-bg text-gray-900 text-sm font-mono">
       <aside className="md:w-64 md:flex-shrink-0 bg-pi-card-bg border-b md:border-b-0 md:border-r border-pi-border-muted flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-pi-border-muted">
-          <h1 className="text-base font-semibold text-pi-accent">pi-web</h1>
+          <h1 className="text-base font-semibold text-pi-accent">pi-web <span className="text-pi-dim font-normal text-xs">v{__APP_VERSION__}</span></h1>
           <button
             onClick={handleNewSession}
             title="New session"
