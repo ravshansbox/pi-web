@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { RpcSession } from "./rpc.ts";
-import { listSessions, cwdToSessionDir } from "./sessions.ts";
+import { listSessions, cwdToSessionDir, readSessionMessages } from "./sessions.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3100", 10);
@@ -26,6 +26,26 @@ const server = createServer((req, res) => {
       .then((data) => {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(data));
+      })
+      .catch((err) => {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(err) }));
+      });
+    return;
+  }
+
+  if (req.url?.startsWith("/api/session?")) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const file = url.searchParams.get("file");
+    if (!file) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "file parameter required" }));
+      return;
+    }
+    readSessionMessages(file)
+      .then((messages) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(messages));
       })
       .catch((err) => {
         res.writeHead(500, { "Content-Type": "application/json" });

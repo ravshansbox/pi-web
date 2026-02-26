@@ -65,6 +65,49 @@ export async function listSessions(opts: {
   return results.slice(0, limit);
 }
 
+export interface ParsedMessage {
+  id: string;
+  role: string;
+  content: any;
+  timestamp?: string;
+  model?: string;
+}
+
+export async function readSessionMessages(filePath: string): Promise<ParsedMessage[]> {
+  const stream = createReadStream(filePath, { encoding: "utf8" });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+  const messages: ParsedMessage[] = [];
+
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (!trimmed.startsWith('{"type":"message"')) continue;
+      try {
+        const entry = JSON.parse(trimmed);
+        if (entry.type !== "message" || !entry.message) continue;
+        const msg = entry.message;
+        const role = msg.role;
+        if (!role || role === "system") continue;
+        // Skip tool_result entries — they are folded into assistant tool calls
+        if (role === "toolResult" || role === "tool_result" || role === "tool") continue;
+        messages.push({
+          id: entry.id || crypto.randomUUID(),
+          role,
+          content: msg.content,
+          timestamp: entry.timestamp || msg.timestamp,
+          model: msg.model || msg.modelId,
+        });
+      } catch {}
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return messages;
+}
+
 async function readSessionHeader(filePath: string): Promise<SessionSummary | null> {
   const stream = createReadStream(filePath, { encoding: "utf8" });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
