@@ -54,9 +54,7 @@ type SessionStats = {
   cost: number;
 };
 
-const WS_BASE = import.meta.env.DEV
-  ? "ws://localhost:3100"
-  : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
 function shortenCwd(cwd: string): string {
   const home = cwd.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
@@ -93,6 +91,7 @@ export default function App() {
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [promptQueue, setPromptQueue] = useState<string[]>([]);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -286,21 +285,23 @@ export default function App() {
           }));
           if (models.length > 0) {
             setAvailableModels(models);
-            if (currentModelRef.current) {
-              if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-            }
+            availableModelsRef.current = models;
+            if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+            if (!currentModelRef.current) scheduleRequestModels();
           } else {
             scheduleRequestModels();
           }
+          requestStats();
         }
         if (event.command === "get_state") {
           const model = event.data?.model;
           if (model) {
-            setCurrentModel({ id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow });
+            const m = { id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow };
+            setCurrentModel(m);
+            currentModelRef.current = m;
             setSelectedProvider(model.provider);
-            if (availableModelsRef.current.length > 0) {
-              if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-            }
+            if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+            if (availableModelsRef.current.length === 0) scheduleRequestModels();
           } else {
             scheduleRequestModels();
           }
@@ -309,8 +310,9 @@ export default function App() {
           const model = event.data;
           if (model) setCurrentModel({ id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow });
         }
-        if (event.command === "get_session_stats" && event.success) {
-          setSessionStats(event.data);
+        if (event.command === "get_session_stats") {
+          console.log("[stats]", event);
+          if (event.success) setSessionStats(event.data);
         }
         break;
       }
@@ -464,6 +466,8 @@ export default function App() {
     setCurrentModel(null);
     setSelectedProvider("");
     setSessionStats(null);
+    availableModelsRef.current = [];
+    currentModelRef.current = null;
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     inputRef.current?.focus();
 
@@ -502,6 +506,8 @@ export default function App() {
     setCurrentModel(null);
     setSelectedProvider("");
     setSessionStats(null);
+    availableModelsRef.current = [];
+    currentModelRef.current = null;
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     if (startSession(cwd, null)) scheduleRequestModels();
     inputRef.current?.focus();
@@ -582,21 +588,38 @@ export default function App() {
       : "bg-pi-error";
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-pi-page-bg text-gray-900 text-sm font-mono">
-      <aside className="md:w-64 md:flex-shrink-0 bg-pi-card-bg border-b md:border-b-0 md:border-r border-pi-border-muted flex flex-col">
+    <div className="flex flex-col md:flex-row h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+      <aside className={`
+        md:w-64 md:flex-shrink-0 md:static md:flex md:flex-col
+        bg-pi-card-bg border-r border-pi-border-muted
+        fixed inset-y-0 left-0 z-30 w-72 flex flex-col
+        transition-transform duration-200
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        md:translate-x-0
+      `}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-pi-border-muted">
           <h1 className="text-base font-semibold text-pi-accent">pi-web <span className="text-pi-dim font-normal text-xs">v{__APP_VERSION__}</span></h1>
-          <button
-            onClick={handleNewSession}
-            title="New session"
-            className="bg-pi-accent text-white p-1.5 rounded-lg hover:opacity-85 cursor-pointer"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleNewSession}
+              title="New session"
+              className="bg-pi-accent text-white p-1.5 rounded-lg hover:opacity-85 cursor-pointer"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" />
+              </svg>
+            </button>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-pi-muted p-1.5 cursor-pointer">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <line x1="3" y1="3" x2="13" y2="13" /><line x1="13" y1="3" x2="3" y2="13" />
+              </svg>
+            </button>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 max-h-[35vh] md:max-h-none">
+        <div className="flex-1 overflow-y-auto p-2">
           {folders.map((folder) => (
             <FolderGroup
               key={folder.cwd}
@@ -604,8 +627,8 @@ export default function App() {
               expanded={expandedFolders.has(folder.cwd)}
               activeSessionFile={activeSessionFile}
               onToggle={() => toggleFolder(folder.cwd)}
-              onNewSession={() => { setExpandedFolders((p) => new Set([...p, folder.cwd])); newSessionInFolder(folder.cwd); }}
-              onSelectSession={switchSession}
+              onNewSession={() => { setExpandedFolders((p) => new Set([...p, folder.cwd])); newSessionInFolder(folder.cwd); setSidebarOpen(false); }}
+              onSelectSession={(file) => { switchSession(file); setSidebarOpen(false); }}
               onDeleteSession={deleteSession}
             />
           ))}
@@ -613,15 +636,25 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col min-h-0">
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-pi-border-muted bg-pi-card-bg">
+          <button onClick={() => setSidebarOpen(true)} className="text-pi-muted p-1 cursor-pointer">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="2" y1="4" x2="16" y2="4" /><line x1="2" y1="9" x2="16" y2="9" /><line x1="2" y1="14" x2="16" y2="14" />
+            </svg>
+          </button>
+          <span className="text-pi-muted truncate">{activeSessionFile ? activeSessionFile.split("/").pop() : "No session selected"}</span>
+        </div>
         <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
           {currentMessages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-pi-muted text-base">
               Start a new session or select one from the list.
             </div>
           ) : (
-            currentMessages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))
+            currentMessages
+              .filter((msg) => msg.role === "user" || msg.parts.some((p) => (p.content ?? "").trim() || p.type === "toolCall"))
+              .map((msg) => (
+                <MessageBubble key={msg.id} msg={msg} />
+              ))
           )}
         </div>
 
@@ -671,7 +704,7 @@ export default function App() {
         </div>
 
         <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <textarea
               ref={inputRef}
               rows={1}
@@ -682,7 +715,7 @@ export default function App() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
               }}
-              className="flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
+              className="flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-base md:text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
             />
             <div className="flex flex-row gap-1 flex-shrink-0">
               <button
@@ -721,24 +754,24 @@ export default function App() {
 function MessageBubble({ msg }: { msg: MessageEntry }) {
   const isUser = msg.role === "user";
   return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-pi-muted">
+    <div className="mb-4 min-w-0">
+      <div className="flex items-center gap-2 mb-1 min-w-0">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-pi-muted shrink-0">
           {isUser ? "You" : "Assistant"}
         </span>
         {!isUser && (msg.model || msg.provider) && (
-          <span className="text-[10px] text-pi-dim">
+          <span className="text-[10px] text-pi-dim truncate">
             {[msg.provider, msg.model].filter(Boolean).join(" / ")}
           </span>
         )}
         {msg.timestamp != null && (
-          <span className="text-[10px] text-pi-dim ml-auto">
+          <span className="text-[10px] text-pi-dim ml-auto shrink-0">
             {formatTime(msg.timestamp)}
           </span>
         )}
       </div>
-      <div className={`rounded-lg px-4 py-3 ${isUser ? "bg-pi-user-bg" : "bg-pi-card-bg border border-pi-border-muted"}`}>
-        <div className="text-sm leading-relaxed break-words">
+      <div className={`rounded-lg px-4 py-3 min-w-0 overflow-hidden ${isUser ? "bg-pi-user-bg" : "bg-pi-card-bg border border-pi-border-muted"}`}>
+        <div className="text-xs md:text-sm leading-relaxed break-words min-w-0">
           {msg.parts.map((part, index) => (
             <Part key={`${msg.id}-${index}`} part={part} />
           ))}

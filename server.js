@@ -13,8 +13,8 @@ pi-web - Web UI for the pi coding agent
 Usage: pi-web [options]
 
 Options:
-  --port <number>   Port to listen on (default: 3100, env: PORT)
-  --host <string>   Host to bind to (default: localhost, env: HOST)
+  --port <number>   Port to listen on (default: 8192, env: PORT)
+  --host <string>   Host to bind to (default: 127.0.0.1, env: HOST)
   -h, --help        Show this help message
   `.trim());
     process.exit(0);
@@ -29,8 +29,8 @@ function getArg(name) {
         return process.argv[idx + 1];
     return undefined;
 }
-const PORT = parseInt(getArg("port") || process.env.PORT || "3100", 10);
-const HOST = getArg("host") || process.env.HOST || "localhost";
+const PORT = parseInt(getArg("port") || process.env.PORT || "8192", 10);
+const HOST = getArg("host") || process.env.HOST || "127.0.0.1";
 const PI_CMD = process.env.PI_CMD || "npx -y @mariozechner/pi-coding-agent@latest";
 const isDev = process.argv.includes("--watch") || process.env.NODE_ENV === "development";
 const distDir = join(__dirname, "dist");
