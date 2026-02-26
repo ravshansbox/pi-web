@@ -55,9 +55,14 @@ jobs:
           npm version $BUMP --no-git-tag-version
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "bump=$BUMP" >> $GITHUB_OUTPUT
 
-      - name: Commit and tag
+      - name: Publish to npm
+        if: steps.check.outputs.skip == 'false'
+        run: npm publish --access public --provenance
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: true
+
+      - name: Commit, tag and push
         if: steps.check.outputs.skip == 'false'
         run: |
           git config user.name "github-actions[bot]"
@@ -76,9 +81,3 @@ jobs:
           gh release create "v${{ steps.version.outputs.new }}" \
             --title "v${{ steps.version.outputs.new }}" \
             --generate-notes
-
-      - name: Publish to npm
-        if: steps.check.outputs.skip == 'false'
-        run: npm publish --access public --provenance
-        env:
-          NPM_CONFIG_IGNORE_SCRIPTS: true
