@@ -58,9 +58,8 @@ jobs:
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
         run: |
-          echo "//registry.npmjs.org/:_authToken=" > ~/.npmrc
-          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
-          npm publish --access public
+          echo "registry=https://registry.npmjs.org/" > ~/.npmrc
+          npm publish --access public --provenance
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
 
