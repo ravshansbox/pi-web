@@ -22,6 +22,13 @@ export interface ParsedMessage {
   timestamp?: string;
   model?: string;
   provider?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
 }
 
 function cwdToSessionDir(cwd: string): string {
@@ -98,6 +105,7 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
           timestamp: entry.timestamp || msg.timestamp,
           model: msg.model || msg.modelId,
           provider: msg.provider,
+          usage: msg.usage,
         });
       } catch {}
     }

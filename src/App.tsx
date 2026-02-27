@@ -18,6 +18,14 @@ type MessagePart = {
   id?: string;
 };
 
+type Usage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+};
+
 type MessageEntry = {
   id: string;
   role: string;
@@ -25,6 +33,7 @@ type MessageEntry = {
   model?: string;
   provider?: string;
   timestamp?: number;
+  usage?: Usage;
 };
 
 type ParsedMessage = {
@@ -34,6 +43,7 @@ type ParsedMessage = {
   timestamp?: string;
   model?: string;
   provider?: string;
+  usage?: Usage;
 };
 
 type Folder = {
@@ -157,6 +167,7 @@ export default function App() {
     [availableModels, selectedProvider]
   );
 
+  const contextUsageTokens = useMemo(() => estimateContextTokens(currentMessages), [currentMessages]);
   function connect() {
     const ws = new WebSocket(WS_BASE);
     wsRef.current = ws;
@@ -168,6 +179,8 @@ export default function App() {
         pendingSessionRef.current = null;
         wsSend({ type: "start_session", sessionFile: pending.sessionFile ?? undefined, cwd: pending.cwd });
         setHasActiveSession(true);
+        scheduleRequestModels();
+        requestStats();
         return;
       }
       if (activeSessionFileRef.current || hasActiveSessionRef.current) {
@@ -177,6 +190,8 @@ export default function App() {
           : sessionsRef.current[0]?.cwd;
         wsSend({ type: "start_session", sessionFile: file ?? undefined, cwd });
         setHasActiveSession(true);
+        scheduleRequestModels();
+        requestStats();
       }
     };
 
@@ -184,7 +199,13 @@ export default function App() {
       let msg: any;
       try { msg = JSON.parse(event.data); } catch { return; }
       if (msg.type === "rpc_event") handleRpcEvent(msg.event);
-      if (msg.type === "error") console.error("[pi-web]", msg.message);
+      if (msg.type === "error") {
+        console.error("[pi-web]", msg.message);
+        if (typeof msg.message === "string" && msg.message.includes("No active session") && (hasActiveSessionRef.current || pendingSessionRef.current)) {
+          scheduleRequestModels(150);
+          requestStats();
+        }
+      }
       if (msg.type === "session_ended") {
         setIsStreaming(false);
         setHasActiveSession(false);
@@ -220,18 +241,22 @@ export default function App() {
     return true;
   }
 
-  function requestModels() {
-    wsSend({ type: "rpc_command", command: { type: "get_available_models", id: "get_models" } });
-    wsSend({ type: "rpc_command", command: { type: "get_state", id: "get_state" } });
+  function requestModels(): boolean {
+    const sentModels = wsSend({ type: "rpc_command", command: { type: "get_available_models", id: "get_models" } });
+    const sentState = wsSend({ type: "rpc_command", command: { type: "get_state", id: "get_state" } });
+    return sentModels && sentState;
   }
 
   function requestStats() {
     wsSend({ type: "rpc_command", command: { type: "get_session_stats", id: "get_session_stats" } });
   }
 
-  function scheduleRequestModels() {
+  function scheduleRequestModels(delayMs = 800) {
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-    modelsRetryRef.current = window.setTimeout(requestModels, 800);
+    modelsRetryRef.current = window.setTimeout(() => {
+      const sent = requestModels();
+      if (!sent) scheduleRequestModels(delayMs);
+    }, delayMs);
   }
 
   async function loadSessions() {
@@ -308,11 +333,14 @@ export default function App() {
         }
         if (event.command === "set_model" && event.success) {
           const model = event.data;
-          if (model) setCurrentModel({ id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow });
+          if (model) {
+            const m = { id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow };
+            setCurrentModel(m);
+            currentModelRef.current = m;
+          }
         }
-        if (event.command === "get_session_stats") {
-          console.log("[stats]", event);
-          if (event.success) setSessionStats(event.data);
+        if (event.command === "get_session_stats" && event.success) {
+          setSessionStats(event.data);
         }
         break;
       }
@@ -347,6 +375,7 @@ export default function App() {
           model: msg.model,
           provider: msg.provider,
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : undefined,
+          usage: msg.usage,
         };
         if (role === "assistant") streamingMessageIdRef.current = id;
         setCurrentMessages((prev) => {
@@ -390,9 +419,9 @@ export default function App() {
             if (m?.content) {
               const parts: MessagePart[] = [];
               parseContentIntoParts(m.content, parts);
-              return { ...msg, parts, model: m.model ?? msg.model, provider: m.provider ?? msg.provider, timestamp: ts };
+              return { ...msg, parts, model: m.model ?? msg.model, provider: m.provider ?? msg.provider, timestamp: ts, usage: m.usage ?? msg.usage };
             }
-            return { ...msg, parts: msg.parts.map((p) => ({ ...p, done: true })), timestamp: ts };
+            return { ...msg, parts: msg.parts.map((p) => ({ ...p, done: true })), timestamp: ts, usage: m?.usage ?? msg.usage };
           })
         );
         break;
@@ -450,24 +479,27 @@ export default function App() {
 
       case "model_changed": {
         const model = event.model;
-        if (model) setCurrentModel({ id: model.id, name: model.name, provider: model.provider });
+        if (model) {
+          const m = { id: model.id, name: model.name, provider: model.provider, contextWindow: model.contextWindow };
+          setCurrentModel(m);
+          currentModelRef.current = m;
+        }
         break;
       }
     }
   }
 
   async function switchSession(file: string) {
+    if (file === activeSessionFileRef.current && hasActiveSessionRef.current) {
+      inputRef.current?.focus();
+      return;
+    }
     setActiveSessionFile(file);
     setCurrentMessages([]);
     setInputValue("");
     streamingMessageIdRef.current = null;
     setIsStreaming(false);
-    setAvailableModels([]);
-    setCurrentModel(null);
-    setSelectedProvider("");
     setSessionStats(null);
-    availableModelsRef.current = [];
-    currentModelRef.current = null;
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
     inputRef.current?.focus();
 
@@ -486,6 +518,7 @@ export default function App() {
             model: msg.model,
             provider: msg.provider,
             timestamp: Number.isFinite(ts) ? ts : undefined,
+            usage: msg.usage,
           };
         });
         setCurrentMessages(parsed);
@@ -493,23 +526,24 @@ export default function App() {
     } catch {}
 
     const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
-    if (startSession(cwd, file)) scheduleRequestModels();
+    if (startSession(cwd, file)) {
+      scheduleRequestModels(120);
+      requestStats();
   }
 
+  }
   function newSessionInFolder(cwd: string) {
     setActiveSessionFile(null);
     setCurrentMessages([]);
     setInputValue("");
     streamingMessageIdRef.current = null;
     setIsStreaming(false);
-    setAvailableModels([]);
-    setCurrentModel(null);
-    setSelectedProvider("");
     setSessionStats(null);
-    availableModelsRef.current = [];
-    currentModelRef.current = null;
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-    if (startSession(cwd, null)) scheduleRequestModels();
+    if (startSession(cwd, null)) {
+      scheduleRequestModels(120);
+      requestStats();
+    }
     inputRef.current?.focus();
   }
 
@@ -693,8 +727,8 @@ export default function App() {
               {sessionStats.tokens.cacheRead > 0 && <span>R{formatTokens(sessionStats.tokens.cacheRead)}</span>}
               {sessionStats.tokens.cacheWrite > 0 && <span>W{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
               {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
-              {currentModel?.contextWindow && sessionStats.tokens.input > 0 && (() => {
-                const pct = (sessionStats.tokens.input / currentModel.contextWindow!) * 100;
+              {currentModel?.contextWindow && contextUsageTokens && (() => {
+                const pct = (contextUsageTokens / currentModel.contextWindow!) * 100;
                 const color = pct > 90 ? "text-pi-error" : pct > 70 ? "text-pi-warning" : "";
                 return <span className={color}>{pct.toFixed(1)}%/{formatTokens(currentModel.contextWindow!)}</span>;
               })()}
@@ -1019,6 +1053,49 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+function getUsageTokens(usage?: Usage): number {
+  if (!usage) return 0;
+  if (typeof usage.totalTokens === "number" && Number.isFinite(usage.totalTokens)) return usage.totalTokens;
+  const input = typeof usage.input === "number" && Number.isFinite(usage.input) ? usage.input : 0;
+  const output = typeof usage.output === "number" && Number.isFinite(usage.output) ? usage.output : 0;
+  const cacheRead = typeof usage.cacheRead === "number" && Number.isFinite(usage.cacheRead) ? usage.cacheRead : 0;
+  const cacheWrite = typeof usage.cacheWrite === "number" && Number.isFinite(usage.cacheWrite) ? usage.cacheWrite : 0;
+  return input + output + cacheRead + cacheWrite;
+}
+
+function estimateMessageTokens(message: MessageEntry): number {
+  let chars = 0;
+  for (const part of message.parts) {
+    if (part.type === "text" || part.type === "thinking") {
+      chars += (part.content ?? "").length;
+      continue;
+    }
+    if (part.type === "tool") {
+      chars += (part.name ?? "").length;
+      chars += (part.content ?? "").length;
+      if (part.args != null) {
+        try {
+          chars += JSON.stringify(part.args).length;
+        } catch {}
+      }
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+function estimateContextTokens(messages: MessageEntry[]): number | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    const usageTokens = getUsageTokens(message.usage);
+    if (usageTokens <= 0) continue;
+    let trailing = 0;
+    for (let j = i + 1; j < messages.length; j++) trailing += estimateMessageTokens(messages[j]);
+    return usageTokens + trailing;
+  }
+  const estimated = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+  return estimated > 0 ? estimated : null;
+}
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 10000) return `${(n / 1000).toFixed(1)}k`;

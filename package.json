@@ -17,7 +17,7 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "concurrently \"vite\" \"node --watch --experimental-strip-types server.ts\"",
+    "dev": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "preview": "vite preview",
     "start": "node build/server/server.js",
