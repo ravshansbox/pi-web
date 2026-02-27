@@ -13,16 +13,14 @@
   "files": [
     "bin",
     "dist",
-    "server.js",
-    "rpc.js",
-    "sessions.js",
+    "build/server",
     "README.md"
   ],
   "scripts": {
     "dev": "concurrently \"vite\" \"node --watch --experimental-strip-types server.ts\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "preview": "vite preview",
-    "start": "node server.js",
+    "start": "node build/server/server.js",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

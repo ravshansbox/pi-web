@@ -35,7 +35,8 @@ const HOST = getArg("host") || process.env.HOST || "127.0.0.1";
 const PI_CMD = process.env.PI_CMD || "npx -y @mariozechner/pi-coding-agent@latest";
 const isDev = process.argv.includes("--watch") || process.env.NODE_ENV === "development";
 
-const distDir = join(__dirname, "dist");
+const distDirCandidates = [join(__dirname, "dist"), join(__dirname, "..", "..", "dist")];
+const distDir = distDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? distDirCandidates[0];
 const htmlPath = join(distDir, "index.html");
 const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, "utf-8");
 
