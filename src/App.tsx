@@ -173,7 +173,7 @@ export default function App() {
     requestAnimationFrame(() => {
       if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
     });
-  }, [currentMessages]);
+  }, [currentMessages, availableModels.length, currentModel?.id, currentModel?.provider]);
 
   useEffect(() => {
     if (!inputRef.current) return;
