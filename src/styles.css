@@ -11,6 +11,11 @@ html, body, #root {
   font-size: 14px !important;
 }
 
+@supports (-webkit-touch-callout: none) {
+  .prompt-input {
+    font-size: 16px !important;
+  }
+}
 @theme {
   --color-pi-accent:        #5a8080;
   --color-pi-border:        #547da7;

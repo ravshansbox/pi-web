@@ -695,7 +695,7 @@ export default function App() {
 
         <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
           {availableModels.length > 0 && (
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 pl-2.5">
               <select
                 value={selectedProvider}
                 onChange={(e) => handleProviderChange(e.target.value)}
@@ -749,16 +749,16 @@ export default function App() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
               }}
-              className="flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-base md:text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
+              className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-base md:text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
             />
             <div className="flex flex-row gap-1 flex-shrink-0">
               <button
                 onClick={sendPrompt}
                 disabled={!isConnected || !hasActiveSession}
                 title={isStreaming ? "queue message" : "send"}
-                className="relative bg-pi-accent text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-accent text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="2" y1="9" x2="16" y2="9" /><polyline points="10,3 16,9 10,15" />
                 </svg>
                 {promptQueue.length > 0 && (
@@ -771,9 +771,9 @@ export default function App() {
                 onClick={sendAbort}
                 disabled={!isStreaming || !hasActiveSession}
                 title="stop"
-                className="bg-pi-error text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-error text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
                   <rect x="4" y="4" width="10" height="10" rx="1.5" />
                 </svg>
               </button>
