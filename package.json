@@ -19,9 +19,10 @@
   "scripts": {
     "dev": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js\"",
     "build": "vite build && tsc -p tsconfig.server.json",
+    "build:bin": "node scripts/generate-bin.mjs",
     "preview": "vite preview",
     "start": "node build/server/server.js",
-    "prepublishOnly": "npm run build"
+    "prepack": "npm run build && npm run build:bin"
   },
   "dependencies": {
     "ws": "^8.19.0"
