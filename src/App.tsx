@@ -802,7 +802,7 @@ export default function App() {
             </button>
           </div>
 
-          <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
+          <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-2 md:px-6">
             {currentMessages.length === 0 ? (
               <div className="flex items-center justify-center h-full text-pi-muted text-base">
                 choose a session and start prompting.
@@ -912,7 +912,7 @@ export default function App() {
 function MessageBubble({ msg }: { msg: MessageEntry }) {
   const isUser = msg.role === "user";
   return (
-    <div className="mb-4 min-w-0">
+    <div className="mb-2 min-w-0">
       <div className="flex items-center gap-2 mb-1 min-w-0">
         <span className="text-[11px] font-semibold tracking-wide text-pi-muted shrink-0">
           {isUser ? "you" : "assistant"}
@@ -960,13 +960,12 @@ function ProjectPicker({
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-4">
-        <h1 className="text-base md:text-lg font-semibold text-pi-accent">choose a project</h1>
-        <p className="text-pi-muted mt-1">select an existing project or add a new working directory.</p>
+        <p className="text-pi-muted">select an existing project or add a new working directory.</p>
       </div>
 
       <div className="rounded-xl border border-pi-border-muted bg-pi-card-bg p-4 mb-4">
         <div className="text-xs text-pi-muted mb-2">new project working directory</div>
-        <div className="flex flex-col md:flex-row gap-2">
+        <div className="flex flex-row gap-2">
           <input
             value={newProjectCwd}
             onChange={(e) => setNewProjectCwd(e.target.value)}
@@ -981,9 +980,12 @@ function ProjectPicker({
           />
           <button
             onClick={submitProject}
-            className="px-3 py-2 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+            title="add project"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
           >
-            add project
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" />
+            </svg>
           </button>
         </div>
       </div>
@@ -1031,23 +1033,29 @@ function SessionPicker({
 }) {
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-4 flex items-start md:items-center gap-3 justify-between flex-col md:flex-row">
-        <div>
+      <div className="mb-4 flex items-start gap-3 justify-between">
+        <div className="min-w-0">
           <h1 className="text-base md:text-lg font-semibold text-pi-accent">choose a session</h1>
-          <p className="text-pi-muted mt-1 break-all">{projectCwd}</p>
+          <p className="text-pi-muted mt-1 truncate" title={projectCwd}>{projectCwd}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onBack}
-            className="px-3 py-2 rounded-lg border border-pi-border-muted text-pi-muted hover:bg-pi-user-bg cursor-pointer"
-          >
-            projects
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onCreateSession}
-            className="px-3 py-2 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+            title="new session"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
           >
-            new session
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" />
+            </svg>
+          </button>
+          <button
+            onClick={onBack}
+            title="back to projects"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
+          >
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="10.5,3 5,8 10.5,13" />
+            </svg>
           </button>
         </div>
       </div>
