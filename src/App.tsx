@@ -201,7 +201,7 @@ export default function App() {
       if (msg.type === "rpc_event") handleRpcEvent(msg.event);
       if (msg.type === "error") {
         console.error("[pi-web]", msg.message);
-        if (typeof msg.message === "string" && msg.message.includes("No active session") && (hasActiveSessionRef.current || pendingSessionRef.current)) {
+        if (typeof msg.message === "string" && msg.message.includes("no active session") && (hasActiveSessionRef.current || pendingSessionRef.current)) {
           scheduleRequestModels(150);
           requestStats();
         }
@@ -549,7 +549,7 @@ export default function App() {
 
   function handleNewSession() {
     const defaultCwd = sessionsRef.current[0]?.cwd || "/";
-    const cwd = window.prompt("Working directory:", defaultCwd);
+    const cwd = window.prompt("working directory:", defaultCwd);
     if (!cwd) return;
     setExpandedFolders((prev) => new Set([...prev, cwd]));
     newSessionInFolder(cwd);
@@ -567,7 +567,7 @@ export default function App() {
     if (hasActiveSessionRef.current) return true;
     if (!isConnected) return false;
     const defaultCwd = sessionsRef.current[0]?.cwd || "/";
-    const cwd = window.prompt("Working directory:", defaultCwd);
+    const cwd = window.prompt("working directory:", defaultCwd);
     if (!cwd) return false;
     return startSession(cwd, null);
   }
@@ -639,7 +639,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleNewSession}
-              title="New session"
+              title="new session"
               className="bg-pi-accent text-white p-1.5 rounded-lg hover:opacity-85 cursor-pointer"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -676,12 +676,12 @@ export default function App() {
               <line x1="2" y1="4" x2="16" y2="4" /><line x1="2" y1="9" x2="16" y2="9" /><line x1="2" y1="14" x2="16" y2="14" />
             </svg>
           </button>
-          <span className="text-pi-muted truncate">{activeSessionFile ? activeSessionFile.split("/").pop() : "No session selected"}</span>
+          <span className="text-pi-muted truncate">{activeSessionFile ? activeSessionFile.split("/").pop() : "no session selected"}</span>
         </div>
         <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
           {currentMessages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-pi-muted text-base">
-              Start a new session or select one from the list.
+              start a new session or select one from the list.
             </div>
           ) : (
             currentMessages
@@ -695,7 +695,7 @@ export default function App() {
         <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
           <span className="flex items-center gap-1.5">
             <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} />
-            {isStreaming ? "Streaming" : isConnected ? "Connected" : "Disconnected"}
+            {isStreaming ? "streaming" : isConnected ? "connected" : "disconnected"}
           </span>
           {availableModels.length > 0 && (
             <span className="flex items-center gap-1.5">
@@ -713,19 +713,19 @@ export default function App() {
                 disabled={isStreaming}
                 className="text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 max-w-[160px]"
               >
-                {modelsForProvider.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                {modelsForProvider.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
               </select>
             </span>
           )}
           {availableModels.length === 0 && currentModel && (
-            <span>{currentModel.name}</span>
+            <span>{currentModel.id}</span>
           )}
           {sessionStats && (
             <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
               {sessionStats.tokens.input > 0 && <span>↑{formatTokens(sessionStats.tokens.input)}</span>}
               {sessionStats.tokens.output > 0 && <span>↓{formatTokens(sessionStats.tokens.output)}</span>}
-              {sessionStats.tokens.cacheRead > 0 && <span>R{formatTokens(sessionStats.tokens.cacheRead)}</span>}
-              {sessionStats.tokens.cacheWrite > 0 && <span>W{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
+              {sessionStats.tokens.cacheRead > 0 && <span>r{formatTokens(sessionStats.tokens.cacheRead)}</span>}
+              {sessionStats.tokens.cacheWrite > 0 && <span>w{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
               {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
               {currentModel?.contextWindow && contextUsageTokens && (() => {
                 const pct = (contextUsageTokens / currentModel.contextWindow!) * 100;
@@ -742,7 +742,7 @@ export default function App() {
             <textarea
               ref={inputRef}
               rows={1}
-              placeholder={hasActiveSession ? "Send a message..." : "Select a session to start"}
+              placeholder={hasActiveSession ? "send a message..." : "select a session to start"}
               disabled={!hasActiveSession}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -755,7 +755,7 @@ export default function App() {
               <button
                 onClick={sendPrompt}
                 disabled={!isConnected || !hasActiveSession}
-                title={isStreaming ? "Queue message" : "Send"}
+                title={isStreaming ? "queue message" : "send"}
                 className="relative bg-pi-accent text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -770,7 +770,7 @@ export default function App() {
               <button
                 onClick={sendAbort}
                 disabled={!isStreaming || !hasActiveSession}
-                title="Stop"
+                title="stop"
                 className="bg-pi-error text-white p-2 rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
               >
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
@@ -790,8 +790,8 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
   return (
     <div className="mb-4 min-w-0">
       <div className="flex items-center gap-2 mb-1 min-w-0">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-pi-muted shrink-0">
-          {isUser ? "You" : "Assistant"}
+        <span className="text-[11px] font-semibold tracking-wide text-pi-muted shrink-0">
+          {isUser ? "you" : "assistant"}
         </span>
         {!isUser && (msg.model || msg.provider) && (
           <span className="text-[10px] text-pi-dim truncate">
@@ -846,7 +846,7 @@ function FolderGroup({
         </button>
         <button
           onClick={onNewSession}
-          title="New session here"
+          title="new session here"
           className="text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg p-1.5 rounded-lg cursor-pointer flex-shrink-0"
         >
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -870,7 +870,7 @@ function FolderGroup({
                 <div className="text-[11px] text-pi-dim mt-0.5">{session.messageCount} msgs · {time}</div>
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteSession(session.file); }}
-                  title="Delete session"
+                  title="delete session"
                   className="absolute top-1/2 right-1.5 -translate-y-1/2 hidden group-hover:flex active:flex items-center justify-center w-5 h-5 rounded text-pi-muted bg-pi-user-bg hover:text-pi-error hover:bg-pi-tool-error cursor-pointer"
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -931,13 +931,13 @@ function ToolPart({ part }: { part: MessagePart }) {
         <div className="border-t border-pi-border-muted">
           {args && (
             <div className="px-3 py-2 border-b border-pi-border-muted/40">
-              <div className="text-[10px] font-semibold text-pi-muted uppercase mb-1">Input</div>
+              <div className="text-[10px] font-semibold text-pi-muted mb-1">input</div>
               <pre className="whitespace-pre-wrap break-all text-pi-muted font-mono">{args}</pre>
             </div>
           )}
           {output && (
             <div className="px-3 py-2">
-              <div className="text-[10px] font-semibold text-pi-muted uppercase mb-1">Output</div>
+              <div className="text-[10px] font-semibold text-pi-muted mb-1">output</div>
               <pre className="whitespace-pre-wrap break-all text-pi-tool-output max-h-48 overflow-y-auto font-mono">{output}</pre>
             </div>
           )}
@@ -1100,6 +1100,6 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-  if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  return `${Math.round(n / 1_000_000)}M`;
+  if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+  return `${Math.round(n / 1_000_000)}m`;
 }

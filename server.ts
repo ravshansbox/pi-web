@@ -63,7 +63,7 @@ const server = createServer((req, res) => {
   if (req.url === "/" || req.url === "/index.html") {
     if (!existsSync(htmlPath)) {
       res.writeHead(503, { "Content-Type": "text/plain" });
-      res.end("Frontend not built. Run: npm run build");
+      res.end("frontend not built. run: npm run build");
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html" });
@@ -130,7 +130,7 @@ const server = createServer((req, res) => {
   }
 
   res.writeHead(404, { "Content-Type": "text/plain" });
-  res.end("Not found");
+  res.end("not found");
 });
 
 const wss = new WebSocketServer({ server });
@@ -164,7 +164,7 @@ wss.on("connection", (ws: WebSocket) => {
 
     if (msg.type === "rpc_command") {
       const rpc = rpcSessions.get(ws);
-      if (!rpc) { ws.send(JSON.stringify({ type: "error", message: "No active session" })); return; }
+      if (!rpc) { ws.send(JSON.stringify({ type: "error", message: "no active session" })); return; }
       rpc.send(msg.command);
       return;
     }
