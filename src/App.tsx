@@ -615,11 +615,12 @@ export default function App() {
 
   const folders = useMemo(() => groupByFolder(sessions), [sessions]);
 
-  const dotClass = isStreaming
-    ? "bg-pi-warning animate-pulse-dot"
-    : isConnected
-      ? "bg-pi-success"
-      : "bg-pi-error";
+  const connectionToneClass = !isConnected
+    ? "border-pi-error bg-pi-tool-error"
+    : isStreaming
+      ? "border-pi-warning bg-pi-tool-pending"
+      : "border-pi-success bg-pi-tool-success";
+  const connectionA11yLabel = isStreaming ? "streaming response" : isConnected ? "connected" : "disconnected";
 
   return (
     <div className="flex flex-col md:flex-row h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
@@ -693,10 +694,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} />
-            {isStreaming ? "streaming" : isConnected ? "connected" : "disconnected"}
-          </span>
           {availableModels.length > 0 && (
             <span className="flex items-center gap-1.5">
               <select
@@ -738,7 +735,10 @@ export default function App() {
         </div>
 
         <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
-          <div className="flex gap-2 items-center">
+          <div className={`flex gap-2 items-center rounded-lg border px-2.5 py-2 transition-colors ${connectionToneClass}`}>
+            <span className="sr-only" aria-live="polite">
+              {connectionA11yLabel}
+            </span>
             <textarea
               ref={inputRef}
               rows={1}
