@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useLocation, useNavigate } from "react-router-dom";
 type SessionSummary = {
   id: string;
   file: string;
@@ -46,8 +47,6 @@ type ParsedMessage = {
   usage?: Usage;
 };
 
-type AppView = "projects" | "sessions" | "history";
-
 type ProjectSummary = {
   cwd: string;
   label: string;
@@ -76,23 +75,68 @@ function shortenCwd(cwd: string): string {
   return "~/../" + parts[parts.length - 1];
 }
 
+const NEW_SESSION_ROUTE_PARAM = "__new__";
+
+function encodeRouteParam(raw: string): string {
+  return encodeURIComponent(raw);
+}
+
+function decodeRouteParam(param: string | undefined): string | null {
+  if (param == null) return null;
+  try {
+    return decodeURIComponent(param);
+  } catch {
+    return null;
+  }
+}
+
+function projectRoutePath(cwd: string): string {
+  return `/${encodeRouteParam(cwd)}`;
+}
+
+function sessionRoutePath(cwd: string, sessionFile: string): string {
+  return `/${encodeRouteParam(cwd)}/${encodeRouteParam(sessionFile)}`;
+}
+
+function newSessionRoutePath(cwd: string): string {
+  return `/${encodeRouteParam(cwd)}/${NEW_SESSION_ROUTE_PARAM}`;
+}
+
 
 export default function App() {
+  const navigate = useNavigate();
+  const routeLocation = useLocation();
+
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [activeSessionFile, setActiveSessionFile] = useState<string | null>(null);
   const [currentMessages, setCurrentMessages] = useState<MessageEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [hasActiveSession, setHasActiveSession] = useState(false);
-  const [view, setView] = useState<AppView>("projects");
-  const [selectedProjectCwd, setSelectedProjectCwd] = useState<string | null>(null);
   const [manualProjectCwds, setManualProjectCwds] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [promptQueue, setPromptQueue] = useState<string[]>([]);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
+  const [hasLoadedSessions, setHasLoadedSessions] = useState(false);
+
+  const pathSegments = useMemo(
+    () => routeLocation.pathname.split("/").filter(Boolean),
+    [routeLocation.pathname]
+  );
+  const projectIdParam = pathSegments[0];
+  const sessionIdParam = pathSegments[1];
+  const hasExtraPathSegments = pathSegments.length > 2;
+  const selectedProjectCwd = useMemo(() => decodeRouteParam(projectIdParam), [projectIdParam]);
+  const activeSessionFile = useMemo(() => {
+    if (sessionIdParam == null || sessionIdParam === NEW_SESSION_ROUTE_PARAM) return null;
+    return decodeRouteParam(sessionIdParam);
+  }, [sessionIdParam]);
+  const isProjectsView = pathSegments.length === 0;
+  const isSessionsView = pathSegments.length === 1;
+  const isHistoryView = pathSegments.length === 2;
+  const isNewSessionRoute = sessionIdParam === NEW_SESSION_ROUTE_PARAM;
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -136,6 +180,33 @@ export default function App() {
     inputRef.current.style.height = "auto";
     inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
   }, [inputValue]);
+
+  useEffect(() => {
+    if (!hasExtraPathSegments) return;
+    navigate("/", { replace: true });
+  }, [hasExtraPathSegments, navigate]);
+  useEffect(() => {
+    if (projectIdParam == null) return;
+    if (selectedProjectCwd == null) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate, projectIdParam, selectedProjectCwd]);
+
+  useEffect(() => {
+    if (projectIdParam == null || sessionIdParam == null || isNewSessionRoute) return;
+    if (selectedProjectCwd == null) return;
+    if (activeSessionFile == null) {
+      navigate(projectRoutePath(selectedProjectCwd), { replace: true });
+    }
+  }, [activeSessionFile, isNewSessionRoute, navigate, projectIdParam, selectedProjectCwd, sessionIdParam]);
+
+  useEffect(() => {
+    if (!selectedProjectCwd || !activeSessionFile || sessionIdParam == null || isNewSessionRoute) return;
+    const exists = sessions.some((session) => session.cwd === selectedProjectCwd && session.file === activeSessionFile);
+    if (!exists && hasLoadedSessions) {
+      navigate(projectRoutePath(selectedProjectCwd), { replace: true });
+    }
+  }, [activeSessionFile, hasLoadedSessions, isNewSessionRoute, navigate, selectedProjectCwd, sessionIdParam, sessions]);
 
 
   const providers = useMemo(
@@ -278,7 +349,10 @@ export default function App() {
     try {
       const res = await fetch("/api/sessions");
       setSessions((await res.json()) as SessionSummary[]);
-    } catch {}
+    } catch {
+    } finally {
+      setHasLoadedSessions(true);
+    }
   }
 
   function parseContentIntoParts(content: any, parts: MessagePart[]) {
@@ -504,66 +578,61 @@ export default function App() {
     }
   }
 
-  async function switchSession(file: string) {
-    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
-    if (!cwd) return;
+  async function hydrateSessionMessages(file: string) {
+    try {
+      const res = await fetch(`/api/session?file=${encodeURIComponent(file)}`);
+      if (!res.ok) return;
+      const messages = (await res.json()) as ParsedMessage[];
+      const parsed: MessageEntry[] = messages.map((msg) => {
+        const parts: MessagePart[] = [];
+        if (msg.content) parseContentIntoParts(msg.content, parts);
+        const ts = msg.timestamp ? Number(msg.timestamp) : undefined;
+        return {
+          id: msg.id || crypto.randomUUID(),
+          role: msg.role || "unknown",
+          parts,
+          model: msg.model,
+          provider: msg.provider,
+          timestamp: Number.isFinite(ts) ? ts : undefined,
+          usage: msg.usage,
+        };
+      });
+      setCurrentMessages(parsed);
+    } catch {}
+  }
 
-    if (file === activeSessionFileRef.current && hasActiveSessionRef.current) {
-      setSelectedProjectCwd(cwd);
-      setView("history");
-      inputRef.current?.focus();
-      return;
-    }
-
-    setSelectedProjectCwd(cwd);
-    setView("history");
-    setActiveSessionFile(file);
+  function resetSessionViewState() {
     setCurrentMessages([]);
     setInputValue("");
     streamingMessageIdRef.current = null;
     setIsStreaming(false);
     setSessionStats(null);
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-    inputRef.current?.focus();
+  }
 
-    try {
-      const res = await fetch(`/api/session?file=${encodeURIComponent(file)}`);
-      if (res.ok) {
-        const messages = (await res.json()) as ParsedMessage[];
-        const parsed: MessageEntry[] = messages.map((msg) => {
-          const parts: MessagePart[] = [];
-          if (msg.content) parseContentIntoParts(msg.content, parts);
-          const ts = msg.timestamp ? Number(msg.timestamp) : undefined;
-          return {
-            id: msg.id || crypto.randomUUID(),
-            role: msg.role || "unknown",
-            parts,
-            model: msg.model,
-            provider: msg.provider,
-            timestamp: Number.isFinite(ts) ? ts : undefined,
-            usage: msg.usage,
-          };
-        });
-        setCurrentMessages(parsed);
-      }
-    } catch {}
+  async function activateExistingSession(cwd: string, file: string) {
+    if (file === activeSessionFileRef.current && hasActiveSessionRef.current) {
+      inputRef.current?.focus();
+      return;
+    }
+
+    resetSessionViewState();
+    await hydrateSessionMessages(file);
 
     if (startSession(cwd, file)) {
       scheduleRequestModels(120);
       requestStats();
     }
+    inputRef.current?.focus();
   }
-  function newSessionInFolder(cwd: string) {
-    setManualProjectCwds((prev) => (prev.includes(cwd) ? prev : [...prev, cwd]));
-    setSelectedProjectCwd(cwd);
-    setView("history");
-    setActiveSessionFile(null);
-    setCurrentMessages([]);
-    setInputValue("");
-    streamingMessageIdRef.current = null;
-    setIsStreaming(false);
-    setSessionStats(null);
-    if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+
+  function activateNewSession(cwd: string) {
+    if (activeSessionFileRef.current === null && hasActiveSessionRef.current) {
+      inputRef.current?.focus();
+      return;
+    }
+
+    resetSessionViewState();
     if (startSession(cwd, null)) {
       scheduleRequestModels(120);
       requestStats();
@@ -571,25 +640,52 @@ export default function App() {
     inputRef.current?.focus();
   }
 
+  useEffect(() => {
+    if (!selectedProjectCwd || sessionIdParam == null) return;
+
+    if (isNewSessionRoute) {
+      activateNewSession(selectedProjectCwd);
+      return;
+    }
+
+    if (!activeSessionFile) return;
+    const exists = sessions.some((session) => session.cwd === selectedProjectCwd && session.file === activeSessionFile);
+    if (!exists) return;
+    void activateExistingSession(selectedProjectCwd, activeSessionFile);
+  }, [activeSessionFile, isNewSessionRoute, selectedProjectCwd, sessionIdParam, sessions]);
+
+  function switchSession(file: string) {
+    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
+    if (!cwd) return;
+    navigate(sessionRoutePath(cwd, file));
+  }
+
+  function newSessionInFolder(cwd: string) {
+    setManualProjectCwds((prev) => (prev.includes(cwd) ? prev : [...prev, cwd]));
+    navigate(newSessionRoutePath(cwd));
+  }
+
   function handleSelectProject(cwd: string) {
-    setSelectedProjectCwd(cwd);
-    setView("sessions");
+    navigate(projectRoutePath(cwd));
   }
 
   function handleCreateProject(cwd: string) {
     const normalisedCwd = cwd.trim();
     if (!normalisedCwd) return;
     setManualProjectCwds((prev) => (prev.includes(normalisedCwd) ? prev : [...prev, normalisedCwd]));
-    setSelectedProjectCwd(normalisedCwd);
-    setView("sessions");
+    navigate(projectRoutePath(normalisedCwd));
   }
 
   function goBackToProjects() {
-    setView("projects");
+    navigate("/");
   }
 
   function goBackToSessions() {
-    setView("sessions");
+    if (!selectedProjectCwd) {
+      navigate("/");
+      return;
+    }
+    navigate(projectRoutePath(selectedProjectCwd));
   }
 
   function sendPrompt() {
@@ -622,14 +718,19 @@ export default function App() {
       await fetch(`/api/session?file=${encodeURIComponent(file)}`, { method: "DELETE" });
     } catch {}
     setSessions((prev) => prev.filter((s) => s.file !== file));
+    const activeCwd = selectedProjectCwd ?? sessionsRef.current.find((s) => s.file === file)?.cwd;
     if (activeSessionFileRef.current === file) {
-      setActiveSessionFile(null);
       setCurrentMessages([]);
       setInputValue("");
       streamingMessageIdRef.current = null;
       setIsStreaming(false);
       setHasActiveSession(false);
-      setView("sessions");
+      setSessionStats(null);
+      if (activeCwd) {
+        navigate(projectRoutePath(activeCwd));
+      } else {
+        navigate("/");
+      }
     }
   }
 
@@ -642,7 +743,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
-      {view === "projects" && (
+      {isProjectsView && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <ProjectPicker
             projects={projectSummaries}
@@ -652,7 +753,7 @@ export default function App() {
         </main>
       )}
 
-      {view === "sessions" && selectedProjectCwd && (
+      {isSessionsView && selectedProjectCwd && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <SessionPicker
             projectCwd={selectedProjectCwd}
@@ -665,7 +766,7 @@ export default function App() {
         </main>
       )}
 
-      {view === "sessions" && !selectedProjectCwd && (
+      {isSessionsView && !selectedProjectCwd && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <div className="mx-auto max-w-3xl rounded-xl border border-pi-border-muted bg-pi-card-bg p-4">
             <div className="text-sm text-pi-muted mb-3">no project selected</div>
@@ -679,7 +780,7 @@ export default function App() {
         </main>
       )}
 
-      {view === "history" && (
+      {isHistoryView && (
         <main className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center gap-2 px-4 py-2 border-b border-pi-border-muted bg-pi-card-bg">
             <div className="min-w-0">

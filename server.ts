@@ -127,6 +127,18 @@ const server = createServer((req, res) => {
       serveFile(filePath, res);
       return;
     }
+
+    const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
+    if (req.method === "GET" && !url.pathname.startsWith("/api/") && acceptsHtml) {
+      if (!existsSync(htmlPath)) {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end("frontend not built. run: npm run build");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(htmlCache ?? readFileSync(htmlPath, "utf-8"));
+      return;
+    }
   }
 
   res.writeHead(404, { "Content-Type": "text/plain" });
