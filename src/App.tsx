@@ -782,7 +782,7 @@ export default function App() {
 
       {isHistoryView && (
         <main className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-pi-border-muted bg-pi-card-bg">
+          <div className="flex items-center gap-2 px-4 py-2 md:px-6 border-b border-pi-border-muted bg-pi-card-bg">
             <div className="min-w-0">
               <div className="text-[11px] text-pi-dim truncate">
                 {selectedProjectCwd ? shortenCwd(selectedProjectCwd) : "project not selected"}
@@ -816,9 +816,9 @@ export default function App() {
             )}
           </div>
 
-          <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
+          <div className="flex items-center gap-3 px-4 py-1.5 md:px-6 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
             {availableModels.length > 0 && (
-              <span className="flex items-center gap-1.5 pl-2.5">
+              <span className="flex items-center gap-1.5">
                 <select
                   value={selectedProvider}
                   onChange={(e) => handleProviderChange(e.target.value)}
