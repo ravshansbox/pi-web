@@ -1,8 +1,14 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 html, body, #root {
   height: 100dvh;
   overflow: hidden;
+}
+
+*, *::before, *::after {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  font-size: 14px !important;
 }
 
 @theme {
