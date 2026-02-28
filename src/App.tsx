@@ -46,10 +46,13 @@ type ParsedMessage = {
   usage?: Usage;
 };
 
-type Folder = {
+type AppView = "projects" | "sessions" | "history";
+
+type ProjectSummary = {
   cwd: string;
   label: string;
-  sessions: SessionSummary[];
+  sessionCount: number;
+  lastSessionTimestamp?: string;
 };
 
 type Model = {
@@ -73,19 +76,6 @@ function shortenCwd(cwd: string): string {
   return "~/../" + parts[parts.length - 1];
 }
 
-function groupByFolder(sessions: SessionSummary[]): Folder[] {
-  const map = new Map<string, SessionSummary[]>();
-  for (const s of sessions) {
-    const list = map.get(s.cwd) ?? [];
-    list.push(s);
-    map.set(s.cwd, list);
-  }
-  return Array.from(map.entries()).map(([cwd, list]) => ({
-    cwd,
-    label: shortenCwd(cwd),
-    sessions: list,
-  }));
-}
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -95,13 +85,14 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [hasActiveSession, setHasActiveSession] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<AppView>("projects");
+  const [selectedProjectCwd, setSelectedProjectCwd] = useState<string | null>(null);
+  const [manualProjectCwds, setManualProjectCwds] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [promptQueue, setPromptQueue] = useState<string[]>([]);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -115,12 +106,14 @@ export default function App() {
   const activeSessionFileRef = useRef<string | null>(null);
   const hasActiveSessionRef = useRef(false);
   const pendingSessionRef = useRef<{ cwd?: string; sessionFile?: string | null } | null>(null);
+  const selectedProjectCwdRef = useRef<string | null>(null);
 
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   useEffect(() => { activeSessionFileRef.current = activeSessionFile; }, [activeSessionFile]);
   useEffect(() => { hasActiveSessionRef.current = hasActiveSession; }, [hasActiveSession]);
   useEffect(() => { availableModelsRef.current = availableModels; }, [availableModels]);
   useEffect(() => { currentModelRef.current = currentModel; }, [currentModel]);
+  useEffect(() => { selectedProjectCwdRef.current = selectedProjectCwd; }, [selectedProjectCwd]);
 
   useEffect(() => {
     connect();
@@ -144,18 +137,6 @@ export default function App() {
     inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
   }, [inputValue]);
 
-  useEffect(() => {
-    if (sessions.length === 0) return;
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      const active = activeSessionFileRef.current;
-      if (active) {
-        const cwd = sessions.find((s) => s.file === active)?.cwd;
-        if (cwd) next.add(cwd);
-      }
-      return next;
-    });
-  }, [sessions]);
 
   const providers = useMemo(
     () => Array.from(new Set(availableModels.map((m) => m.provider))),
@@ -168,6 +149,39 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => estimateContextTokens(currentMessages), [currentMessages]);
+  const projectSummaries = useMemo<ProjectSummary[]>(() => {
+    const allCwds = new Set<string>();
+    for (const cwd of manualProjectCwds) allCwds.add(cwd);
+    for (const session of sessions) {
+      if (session.cwd) allCwds.add(session.cwd);
+    }
+
+    const projects = Array.from(allCwds).map((cwd) => {
+      const projectSessions = sessions.filter((session) => session.cwd === cwd);
+      const lastSessionTimestamp = projectSessions.reduce<string | undefined>((latest, session) => {
+        if (!latest || session.timestamp > latest) return session.timestamp;
+        return latest;
+      }, undefined);
+
+      return {
+        cwd,
+        label: shortenCwd(cwd),
+        sessionCount: projectSessions.length,
+        lastSessionTimestamp,
+      };
+    });
+
+    return projects.sort((a, b) => {
+      const tsCompare = (b.lastSessionTimestamp ?? "").localeCompare(a.lastSessionTimestamp ?? "");
+      if (tsCompare !== 0) return tsCompare;
+      return a.label.localeCompare(b.label);
+    });
+  }, [manualProjectCwds, sessions]);
+
+  const sessionsForSelectedProject = useMemo(
+    () => (selectedProjectCwd ? sessions.filter((session) => session.cwd === selectedProjectCwd) : []),
+    [selectedProjectCwd, sessions]
+  );
   function connect() {
     const ws = new WebSocket(WS_BASE);
     wsRef.current = ws;
@@ -187,7 +201,8 @@ export default function App() {
         const file = activeSessionFileRef.current;
         const cwd = file
           ? sessionsRef.current.find((s) => s.file === file)?.cwd
-          : sessionsRef.current[0]?.cwd;
+          : selectedProjectCwdRef.current ?? sessionsRef.current[0]?.cwd;
+        if (!file && !cwd) return;
         wsSend({ type: "start_session", sessionFile: file ?? undefined, cwd });
         setHasActiveSession(true);
         scheduleRequestModels();
@@ -490,10 +505,18 @@ export default function App() {
   }
 
   async function switchSession(file: string) {
+    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
+    if (!cwd) return;
+
     if (file === activeSessionFileRef.current && hasActiveSessionRef.current) {
+      setSelectedProjectCwd(cwd);
+      setView("history");
       inputRef.current?.focus();
       return;
     }
+
+    setSelectedProjectCwd(cwd);
+    setView("history");
     setActiveSessionFile(file);
     setCurrentMessages([]);
     setInputValue("");
@@ -525,14 +548,15 @@ export default function App() {
       }
     } catch {}
 
-    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
     if (startSession(cwd, file)) {
       scheduleRequestModels(120);
       requestStats();
-  }
-
+    }
   }
   function newSessionInFolder(cwd: string) {
+    setManualProjectCwds((prev) => (prev.includes(cwd) ? prev : [...prev, cwd]));
+    setSelectedProjectCwd(cwd);
+    setView("history");
     setActiveSessionFile(null);
     setCurrentMessages([]);
     setInputValue("");
@@ -547,40 +571,35 @@ export default function App() {
     inputRef.current?.focus();
   }
 
-  function handleNewSession() {
-    const defaultCwd = sessionsRef.current[0]?.cwd || "/";
-    const cwd = window.prompt("working directory:", defaultCwd);
-    if (!cwd) return;
-    setExpandedFolders((prev) => new Set([...prev, cwd]));
-    newSessionInFolder(cwd);
+  function handleSelectProject(cwd: string) {
+    setSelectedProjectCwd(cwd);
+    setView("sessions");
   }
 
-  function toggleFolder(cwd: string) {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      next.has(cwd) ? next.delete(cwd) : next.add(cwd);
-      return next;
-    });
+  function handleCreateProject(cwd: string) {
+    const normalisedCwd = cwd.trim();
+    if (!normalisedCwd) return;
+    setManualProjectCwds((prev) => (prev.includes(normalisedCwd) ? prev : [...prev, normalisedCwd]));
+    setSelectedProjectCwd(normalisedCwd);
+    setView("sessions");
   }
 
-  function ensureSession(): boolean {
-    if (hasActiveSessionRef.current) return true;
-    if (!isConnected) return false;
-    const defaultCwd = sessionsRef.current[0]?.cwd || "/";
-    const cwd = window.prompt("working directory:", defaultCwd);
-    if (!cwd) return false;
-    return startSession(cwd, null);
+  function goBackToProjects() {
+    setView("projects");
+  }
+
+  function goBackToSessions() {
+    setView("sessions");
   }
 
   function sendPrompt() {
     const text = inputValue.trim();
-    if (!text || !isConnected) return;
+    if (!text || !isConnected || !hasActiveSession) return;
     setInputValue("");
     if (isStreaming) {
       setPromptQueue((q) => [...q, text]);
       return;
     }
-    if (!ensureSession()) return;
     wsSend({ type: "rpc_command", command: { type: "prompt", message: text, id: `web-${Date.now()}` } });
   }
 
@@ -603,184 +622,188 @@ export default function App() {
       await fetch(`/api/session?file=${encodeURIComponent(file)}`, { method: "DELETE" });
     } catch {}
     setSessions((prev) => prev.filter((s) => s.file !== file));
-    if (activeSessionFile === file) {
+    if (activeSessionFileRef.current === file) {
       setActiveSessionFile(null);
       setCurrentMessages([]);
       setInputValue("");
       streamingMessageIdRef.current = null;
       setIsStreaming(false);
       setHasActiveSession(false);
+      setView("sessions");
     }
   }
-
-  const folders = useMemo(() => groupByFolder(sessions), [sessions]);
 
   const connectionToneClass = !isConnected
     ? "border-pi-error bg-pi-tool-error"
     : isStreaming
       ? "border-pi-warning bg-pi-tool-pending"
       : "border-pi-success bg-pi-tool-success";
-  const connectionA11yLabel = isStreaming ? "streaming response" : isConnected ? "connected" : "disconnected";
+  const connectionA11yLabel = isStreaming ? "streaming response" : "session status";
 
   return (
-    <div className="flex flex-col md:flex-row h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />
+    <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
+      {view === "projects" && (
+        <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+          <ProjectPicker
+            projects={projectSummaries}
+            onSelectProject={handleSelectProject}
+            onCreateProject={handleCreateProject}
+          />
+        </main>
       )}
-      <aside className={`
-        md:w-64 md:flex-shrink-0 md:static md:flex md:flex-col
-        bg-pi-card-bg border-r border-pi-border-muted
-        fixed inset-y-0 left-0 z-30 w-72 flex flex-col
-        transition-transform duration-200
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        md:translate-x-0
-      `}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-pi-border-muted">
-          <h1 className="text-base font-semibold text-pi-accent">pi-web <span className="text-pi-dim font-normal text-xs">v{__APP_VERSION__}</span></h1>
-          <div className="flex items-center gap-2">
+
+      {view === "sessions" && selectedProjectCwd && (
+        <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+          <SessionPicker
+            projectCwd={selectedProjectCwd}
+            sessions={sessionsForSelectedProject}
+            onBack={goBackToProjects}
+            onCreateSession={() => newSessionInFolder(selectedProjectCwd)}
+            onSelectSession={switchSession}
+            onDeleteSession={deleteSession}
+          />
+        </main>
+      )}
+
+      {view === "sessions" && !selectedProjectCwd && (
+        <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+          <div className="mx-auto max-w-3xl rounded-xl border border-pi-border-muted bg-pi-card-bg p-4">
+            <div className="text-sm text-pi-muted mb-3">no project selected</div>
             <button
-              onClick={handleNewSession}
-              title="new session"
-              className="bg-pi-accent text-white p-1.5 rounded-lg hover:opacity-85 cursor-pointer"
+              onClick={goBackToProjects}
+              className="px-3 py-1.5 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" />
-              </svg>
+              choose project
             </button>
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-pi-muted p-1.5 cursor-pointer">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <line x1="3" y1="3" x2="13" y2="13" /><line x1="13" y1="3" x2="3" y2="13" />
+          </div>
+        </main>
+      )}
+
+      {view === "history" && (
+        <main className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-pi-border-muted bg-pi-card-bg">
+            <div className="min-w-0">
+              <div className="text-[11px] text-pi-dim truncate">
+                {selectedProjectCwd ? shortenCwd(selectedProjectCwd) : "project not selected"}
+              </div>
+              <div className="text-xs truncate text-pi-muted">
+                {activeSessionFile ? activeSessionFile.split("/").pop() : "new session"}
+              </div>
+            </div>
+            <button
+              onClick={goBackToSessions}
+              title="back to sessions"
+              className="ml-auto inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="10.5,3 5,8 10.5,13" />
               </svg>
             </button>
           </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {folders.map((folder) => (
-            <FolderGroup
-              key={folder.cwd}
-              folder={folder}
-              expanded={expandedFolders.has(folder.cwd)}
-              activeSessionFile={activeSessionFile}
-              onToggle={() => toggleFolder(folder.cwd)}
-              onNewSession={() => { setExpandedFolders((p) => new Set([...p, folder.cwd])); newSessionInFolder(folder.cwd); setSidebarOpen(false); }}
-              onSelectSession={(file) => { switchSession(file); setSidebarOpen(false); }}
-              onDeleteSession={deleteSession}
-            />
-          ))}
-        </div>
-      </aside>
 
-      <main className="flex-1 flex flex-col min-h-0">
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-pi-border-muted bg-pi-card-bg">
-          <button onClick={() => setSidebarOpen(true)} className="text-pi-muted p-1 cursor-pointer">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <line x1="2" y1="4" x2="16" y2="4" /><line x1="2" y1="9" x2="16" y2="9" /><line x1="2" y1="14" x2="16" y2="14" />
-            </svg>
-          </button>
-          <span className="text-pi-muted truncate">{activeSessionFile ? activeSessionFile.split("/").pop() : "no session selected"}</span>
-        </div>
-        <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
-          {currentMessages.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-pi-muted text-base">
-              start a new session or select one from the list.
-            </div>
-          ) : (
-            currentMessages
-              .filter((msg) => msg.role === "user" || msg.parts.some((p) => (p.content ?? "").trim() || p.type === "toolCall"))
-              .map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))
-          )}
-        </div>
+          <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
+            {currentMessages.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-pi-muted text-base">
+                choose a session and start prompting.
+              </div>
+            ) : (
+              currentMessages
+                .filter((msg) => msg.role === "user" || msg.parts.some((p) => (p.content ?? "").trim() || p.type === "tool"))
+                .map((msg) => (
+                  <MessageBubble key={msg.id} msg={msg} />
+                ))
+            )}
+          </div>
 
-        <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
-          {availableModels.length > 0 && (
-            <span className="flex items-center gap-1.5 pl-2.5">
-              <select
-                value={selectedProvider}
-                onChange={(e) => handleProviderChange(e.target.value)}
-                disabled={isStreaming}
-                className="text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 max-w-[120px]"
-              >
-                {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <select
-                value={currentModel?.provider === selectedProvider ? currentModel.id : ""}
-                onChange={(e) => handleModelChange(e.target.value)}
-                disabled={isStreaming}
-                className="text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 max-w-[160px]"
-              >
-                {modelsForProvider.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
-              </select>
-            </span>
-          )}
-          {availableModels.length === 0 && currentModel && (
-            <span>{currentModel.id}</span>
-          )}
-          {sessionStats && (
-            <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
-              {sessionStats.tokens.input > 0 && <span>↑{formatTokens(sessionStats.tokens.input)}</span>}
-              {sessionStats.tokens.output > 0 && <span>↓{formatTokens(sessionStats.tokens.output)}</span>}
-              {sessionStats.tokens.cacheRead > 0 && <span>r{formatTokens(sessionStats.tokens.cacheRead)}</span>}
-              {sessionStats.tokens.cacheWrite > 0 && <span>w{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
-              {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
-              {currentModel?.contextWindow && contextUsageTokens && (() => {
-                const pct = (contextUsageTokens / currentModel.contextWindow!) * 100;
-                const color = pct > 90 ? "text-pi-error" : pct > 70 ? "text-pi-warning" : "";
-                return <span className={color}>{pct.toFixed(1)}%/{formatTokens(currentModel.contextWindow!)}</span>;
-              })()}
-            </span>
-          )}
-          {isStreaming && <span>responding{promptQueue.length > 0 ? ` · ${promptQueue.length} queued` : ""}</span>}
-        </div>
+          <div className="flex items-center gap-3 px-4 py-1.5 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
+            {availableModels.length > 0 && (
+              <span className="flex items-center gap-1.5 pl-2.5">
+                <select
+                  value={selectedProvider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                  disabled={isStreaming}
+                  className="text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 max-w-[120px]"
+                >
+                  {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select
+                  value={currentModel?.provider === selectedProvider ? currentModel.id : ""}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  disabled={isStreaming}
+                  className="text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 max-w-[160px]"
+                >
+                  {modelsForProvider.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                </select>
+              </span>
+            )}
+            {availableModels.length === 0 && currentModel && (
+              <span>{currentModel.id}</span>
+            )}
+            {sessionStats && (
+              <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
+                {sessionStats.tokens.input > 0 && <span>↑{formatTokens(sessionStats.tokens.input)}</span>}
+                {sessionStats.tokens.output > 0 && <span>↓{formatTokens(sessionStats.tokens.output)}</span>}
+                {sessionStats.tokens.cacheRead > 0 && <span>r{formatTokens(sessionStats.tokens.cacheRead)}</span>}
+                {sessionStats.tokens.cacheWrite > 0 && <span>w{formatTokens(sessionStats.tokens.cacheWrite)}</span>}
+                {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
+                {currentModel?.contextWindow && contextUsageTokens && (() => {
+                  const pct = (contextUsageTokens / currentModel.contextWindow!) * 100;
+                  const color = pct > 90 ? "text-pi-error" : pct > 70 ? "text-pi-warning" : "";
+                  return <span className={color}>{pct.toFixed(1)}%/{formatTokens(currentModel.contextWindow!)}</span>;
+                })()}
+              </span>
+            )}
+            {isStreaming && <span>responding{promptQueue.length > 0 ? ` · ${promptQueue.length} queued` : ""}</span>}
+          </div>
 
-        <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
-          <div className={`flex gap-2 items-center rounded-lg border px-2.5 py-2 transition-colors ${connectionToneClass}`}>
-            <span className="sr-only" aria-live="polite">
-              {connectionA11yLabel}
-            </span>
-            <textarea
-              ref={inputRef}
-              rows={1}
-              placeholder={hasActiveSession ? "send a message..." : "select a session to start"}
-              disabled={!hasActiveSession}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
-              }}
-              className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-base md:text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
-            />
-            <div className="flex flex-row gap-1 flex-shrink-0">
-              <button
-                onClick={sendPrompt}
-                disabled={!isConnected || !hasActiveSession}
-                title={isStreaming ? "queue message" : "send"}
-                className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-accent text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
-              >
-                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="2" y1="9" x2="16" y2="9" /><polyline points="10,3 16,9 10,15" />
-                </svg>
-                {promptQueue.length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-pi-warning text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center leading-none">
-                    {promptQueue.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={sendAbort}
-                disabled={!isStreaming || !hasActiveSession}
-                title="stop"
-                className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-error text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
-              >
-                <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
-                  <rect x="4" y="4" width="10" height="10" rx="1.5" />
-                </svg>
-              </button>
+          <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
+            <div className={`flex gap-2 items-center rounded-lg border px-2.5 py-2 transition-colors ${connectionToneClass}`}>
+              <span className="sr-only" aria-live="polite">
+                {connectionA11yLabel}
+              </span>
+              <textarea
+                ref={inputRef}
+                rows={1}
+                placeholder={hasActiveSession ? "send a message..." : "create or select a session"}
+                disabled={!hasActiveSession}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+                }}
+                className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 text-base md:text-sm font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
+              />
+              <div className="flex flex-row gap-1 flex-shrink-0">
+                <button
+                  onClick={sendPrompt}
+                  disabled={!isConnected || !hasActiveSession}
+                  title={isStreaming ? "queue message" : "send"}
+                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-accent text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                >
+                  <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="2" y1="9" x2="16" y2="9" /><polyline points="10,3 16,9 10,15" />
+                  </svg>
+                  {promptQueue.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-pi-warning text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center leading-none">
+                      {promptQueue.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={sendAbort}
+                  disabled={!isStreaming || !hasActiveSession}
+                  title="stop"
+                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-error text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                >
+                  <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
+                    <rect x="4" y="4" width="10" height="10" rx="1.5" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      )}
     </div>
   );
 }
@@ -815,63 +838,144 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
   );
 }
 
-function FolderGroup({
-  folder,
-  expanded,
-  activeSessionFile,
-  onToggle,
-  onNewSession,
+function ProjectPicker({
+  projects,
+  onSelectProject,
+  onCreateProject,
+}: {
+  projects: ProjectSummary[];
+  onSelectProject: (cwd: string) => void;
+  onCreateProject: (cwd: string) => void;
+}) {
+  const [newProjectCwd, setNewProjectCwd] = useState("");
+
+  function submitProject() {
+    const cwd = newProjectCwd.trim();
+    if (!cwd) return;
+    onCreateProject(cwd);
+    setNewProjectCwd("");
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-4">
+        <h1 className="text-base md:text-lg font-semibold text-pi-accent">choose a project</h1>
+        <p className="text-pi-muted mt-1">select an existing project or add a new working directory.</p>
+      </div>
+
+      <div className="rounded-xl border border-pi-border-muted bg-pi-card-bg p-4 mb-4">
+        <div className="text-xs text-pi-muted mb-2">new project working directory</div>
+        <div className="flex flex-col md:flex-row gap-2">
+          <input
+            value={newProjectCwd}
+            onChange={(e) => setNewProjectCwd(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitProject();
+              }
+            }}
+            placeholder="/absolute/path/to/project"
+            className="flex-1 border border-pi-border-muted rounded-lg px-3 py-2 bg-white outline-none focus:border-pi-accent"
+          />
+          <button
+            onClick={submitProject}
+            className="px-3 py-2 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+          >
+            add project
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {projects.length === 0 && (
+          <div className="rounded-xl border border-dashed border-pi-border-muted bg-pi-card-bg px-4 py-6 text-center text-pi-muted">
+            no projects yet. add a working directory to continue.
+          </div>
+        )}
+
+        {projects.map((project) => {
+          const time = project.lastSessionTimestamp ? new Date(project.lastSessionTimestamp).toLocaleString() : "no sessions";
+          return (
+            <button
+              key={project.cwd}
+              onClick={() => onSelectProject(project.cwd)}
+              className="w-full text-left rounded-xl border border-pi-border-muted bg-pi-card-bg px-4 py-3 hover:bg-pi-user-bg cursor-pointer"
+            >
+              <div className="text-sm text-gray-800 truncate">{project.label}</div>
+              <div className="text-[11px] text-pi-dim mt-1 truncate">{project.cwd}</div>
+              <div className="text-[11px] text-pi-muted mt-1">{project.sessionCount} sessions · {time}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SessionPicker({
+  projectCwd,
+  sessions,
+  onBack,
+  onCreateSession,
   onSelectSession,
   onDeleteSession,
 }: {
-  folder: Folder;
-  expanded: boolean;
-  activeSessionFile: string | null;
-  onToggle: () => void;
-  onNewSession: () => void;
+  projectCwd: string;
+  sessions: SessionSummary[];
+  onBack: () => void;
+  onCreateSession: () => void;
   onSelectSession: (file: string) => void;
   onDeleteSession: (file: string) => void;
 }) {
-  const hasActive = folder.sessions.some((s) => s.file === activeSessionFile);
   return (
-    <div className="mb-1">
-      <div className="flex items-center gap-1 rounded-lg">
-        <button
-          onClick={onToggle}
-          className={`flex-1 flex items-center gap-1.5 text-left px-2 py-1.5 rounded-lg text-xs font-semibold hover:bg-pi-user-bg cursor-pointer min-w-0 ${hasActive ? "text-pi-accent" : "text-gray-700"}`}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`text-pi-muted transition-transform duration-150 flex-shrink-0 ${expanded ? "rotate-90" : ""}`}><polyline points="3,2 9,6 3,10" /></svg>
-          <span className="flex-1 truncate min-w-0">{folder.label}</span>
-          <span className="text-[11px] text-pi-dim font-normal flex-shrink-0">{folder.sessions.length}</span>
-        </button>
-        <button
-          onClick={onNewSession}
-          title="new session here"
-          className="text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg p-1.5 rounded-lg cursor-pointer flex-shrink-0"
-        >
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <line x1="6.5" y1="1.5" x2="6.5" y2="11.5" /><line x1="1.5" y1="6.5" x2="11.5" y2="6.5" />
-          </svg>
-        </button>
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-4 flex items-start md:items-center gap-3 justify-between flex-col md:flex-row">
+        <div>
+          <h1 className="text-base md:text-lg font-semibold text-pi-accent">choose a session</h1>
+          <p className="text-pi-muted mt-1 break-all">{projectCwd}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            className="px-3 py-2 rounded-lg border border-pi-border-muted text-pi-muted hover:bg-pi-user-bg cursor-pointer"
+          >
+            projects
+          </button>
+          <button
+            onClick={onCreateSession}
+            className="px-3 py-2 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+          >
+            new session
+          </button>
+        </div>
       </div>
-      {expanded && (
-        <div className="pl-3 mt-0.5">
-          {folder.sessions.map((session) => {
-            const active = session.file === activeSessionFile;
+
+      {sessions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-pi-border-muted bg-pi-card-bg px-4 py-6 text-center text-pi-muted">
+          no sessions in this project yet.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sessions.map((session) => {
             const label = session.firstPrompt || session.id.slice(0, 8);
             const time = session.timestamp ? new Date(session.timestamp).toLocaleString() : "";
             return (
               <div
                 key={session.file}
-                onClick={() => onSelectSession(session.file)}
-                className={`group relative px-2.5 py-2 rounded-lg cursor-pointer mb-0.5 border ${active ? "border-pi-accent bg-pi-user-bg" : "border-transparent hover:bg-pi-user-bg"}`}
+                className="group relative w-full text-left rounded-xl border border-pi-border-muted bg-pi-card-bg px-4 py-3 hover:bg-pi-user-bg"
               >
-                <div className="text-xs truncate pr-5">{label}</div>
-                <div className="text-[11px] text-pi-dim mt-0.5">{session.messageCount} msgs · {time}</div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDeleteSession(session.file); }}
+                  onClick={() => onSelectSession(session.file)}
+                  className="w-full text-left cursor-pointer"
+                >
+                  <div className="text-sm text-gray-800 truncate pr-8">{label}</div>
+                  <div className="text-[11px] text-pi-muted mt-1">{session.messageCount} msgs · {time}</div>
+                </button>
+                <button
+                  onClick={() => onDeleteSession(session.file)}
                   title="delete session"
-                  className="absolute top-1/2 right-1.5 -translate-y-1/2 hidden group-hover:flex active:flex items-center justify-center w-5 h-5 rounded text-pi-muted bg-pi-user-bg hover:text-pi-error hover:bg-pi-tool-error cursor-pointer"
+                  className="absolute top-3 right-3 hidden group-hover:inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-error hover:bg-pi-tool-error cursor-pointer"
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                     <line x1="1.5" y1="1.5" x2="8.5" y2="8.5" /><line x1="8.5" y1="1.5" x2="1.5" y2="8.5" />
