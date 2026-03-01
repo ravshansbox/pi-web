@@ -115,9 +115,21 @@ function newSessionRoutePath(cwd: string): string {
   return `/${encodeRouteParam(cwd)}/${NEW_SESSION_ROUTE_PARAM}`;
 }
 
+function projectsRoutePath(cwd?: string | null): string {
+  return cwd ? `/?cwd=${encodeURIComponent(cwd)}` : '/';
+}
+
 function normaliseThinkingLevel(value: unknown): ThinkingLevel | null {
   if (typeof value !== 'string') return null;
   return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : null;
+}
+
+function getInitialFolderBrowserCwdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('cwd');
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 const ANSI_ESCAPE_PATTERN =
@@ -428,7 +440,9 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [hasActiveSession, setHasActiveSession] = useState(false);
-  const [folderBrowserCwd, setFolderBrowserCwd] = useState<string | null>(null);
+  const [folderBrowserCwd, setFolderBrowserCwd] = useState<string | null>(
+    getInitialFolderBrowserCwdFromUrl,
+  );
   const [folderBrowserRoot, setFolderBrowserRoot] = useState<string | null>(null);
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   const [isFolderBrowserLoading, setIsFolderBrowserLoading] = useState(false);
@@ -457,6 +471,12 @@ export default function App() {
   const isSessionsView = pathSegments.length === 1;
   const isHistoryView = pathSegments.length === 2;
   const isNewSessionRoute = sessionIdParam === NEW_SESSION_ROUTE_PARAM;
+  const folderCwdFromQuery = useMemo(() => {
+    const raw = new URLSearchParams(routeLocation.search).get('cwd');
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }, [routeLocation.search]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -510,6 +530,11 @@ export default function App() {
   useEffect(() => {
     if (!isNewSessionRoute) sessionRouteSyncAttemptsRef.current.clear();
   }, [isNewSessionRoute]);
+
+  useEffect(() => {
+    if (!isProjectsView) return;
+    setFolderBrowserCwd((prev) => (prev === folderCwdFromQuery ? prev : folderCwdFromQuery));
+  }, [folderCwdFromQuery, isProjectsView]);
 
   useEffect(() => {
     connect();
@@ -1441,14 +1466,14 @@ export default function App() {
   }
 
   function browseIntoFolder(path: string) {
-    setFolderBrowserCwd(path);
+    navigate(projectsRoutePath(path));
   }
 
   function browseToParentFolder() {
     if (!folderBrowserCwd || !folderBrowserRoot || folderBrowserCwd === folderBrowserRoot) return;
     const parts = folderBrowserCwd.split('/').filter(Boolean);
     const parent = parts.length <= 1 ? '/' : `/${parts.slice(0, -1).join('/')}`;
-    setFolderBrowserCwd(parent);
+    navigate(projectsRoutePath(parent));
   }
 
   function openCurrentFolder() {
@@ -1457,12 +1482,12 @@ export default function App() {
   }
 
   function goBackToProjects() {
-    navigate('/');
+    navigate(projectsRoutePath(selectedProjectCwd ?? folderBrowserCwd));
   }
 
   function goBackToSessions() {
     if (!selectedProjectCwd) {
-      navigate('/');
+      navigate(projectsRoutePath(folderBrowserCwd));
       return;
     }
     navigate(projectRoutePath(selectedProjectCwd));
