@@ -15,8 +15,8 @@ Then open [http://127.0.0.1:8192](http://127.0.0.1:8192) in your browser.
 ## Options
 
 ```
---port <number>      Port to listen on (default: 8192, env: PORT)
---host <string>      Host to bind to (default: 127.0.0.1, env: HOST)
+--port <number>      Port to listen on (default: 8192)
+--host <string>      Host to bind to (default: 127.0.0.1)
 --agent <pi|omp>     Agent backend profile (default: pi)
 --help               Show help
 ```

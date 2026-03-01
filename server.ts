@@ -17,8 +17,8 @@ pi-web - Web UI for the pi coding agent
 Usage: pi-web [options]
 
 Options:
-  --port <number>      Port to listen on (default: 8192, env: PORT)
-  --host <string>      Host to bind to (default: 127.0.0.1, env: HOST)
+  --port <number>      Port to listen on (default: 8192)
+  --host <string>      Host to bind to (default: 127.0.0.1)
   --agent <pi|omp>     Agent backend profile (default: pi)
   -h, --help           Show this help message
   `.trim(),
@@ -50,8 +50,8 @@ function getAgentCommand(agent: AgentKind): string {
 }
 
 const AGENT = parseAgent(getArg('agent'));
-const PORT = parseInt(getArg('port') || process.env.PORT || '8192', 10);
-const HOST = getArg('host') || process.env.HOST || '127.0.0.1';
+const PORT = parseInt(getArg('port') || '8192', 10);
+const HOST = getArg('host') || '127.0.0.1';
 const AGENT_CMD = getAgentCommand(AGENT);
 const DEFAULT_IDLE_SESSION_TTL_MS = 60_000;
 const idleSessionTtlMsEnv = parseInt(process.env.PI_WEB_IDLE_SESSION_TTL_MS || '', 10);
