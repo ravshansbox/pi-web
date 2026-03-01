@@ -1600,7 +1600,7 @@ export default function App() {
             <div className="text-sm text-pi-muted mb-3">no folder selected</div>
             <button
               onClick={goBackToProjects}
-              className="px-3 py-1.5 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
             >
               choose folder
             </button>
@@ -1764,7 +1764,7 @@ export default function App() {
                   onClick={sendPrompt}
                   disabled={!isConnected || !hasActiveSession}
                   title={isStreaming ? 'queue message' : 'send'}
-                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-accent text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
                   <svg
                     width="20"
@@ -1789,7 +1789,7 @@ export default function App() {
                   onClick={sendAbort}
                   disabled={!isStreaming || !hasActiveSession}
                   title="stop"
-                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 bg-pi-error text-white rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-default hover:opacity-85"
+                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
                   <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
                     <rect x="4" y="4" width="10" height="10" rx="1.5" />
@@ -1870,7 +1870,7 @@ function FolderBrowser({
             disabled={!cwd}
             title="open current folder"
             aria-label="open current folder"
-            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
           >
             <svg
               width="18"
@@ -1882,10 +1882,8 @@ function FolderBrowser({
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <path d="M1.5 6.2V4.8a1 1 0 0 1 1-1h3l1.3 1.4h6.7a1 1 0 0 1 1 1v1" />
-              <path d="M1.5 7h13l-1.2 5.1a1 1 0 0 1-1 .8H3.7a1 1 0 0 1-1-.8L1.5 7Z" />
-              <path d="M7.3 10h3.2" />
-              <path d="m9.3 8.9 1.2 1.1-1.2 1.1" />
+              <path d="M1.5 6.1V4.8a1 1 0 0 1 1-1h3l1.3 1.3h6.7a1 1 0 0 1 1 1v.8" />
+              <path d="M1.5 6.9h13l-1.2 5.2a1 1 0 0 1-1 .8H3.7a1 1 0 0 1-1-.8L1.5 6.9Z" />
             </svg>
           </button>
           <button
@@ -1971,7 +1969,7 @@ function SessionPicker({
           <button
             onClick={onCreateSession}
             title="new session"
-            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
           >
             <svg
               width="18"
@@ -2048,7 +2046,7 @@ function SessionPicker({
                 <button
                   onClick={() => onDeleteSession(session.file)}
                   title="delete session"
-                  className="absolute top-3 right-3 hidden group-hover:inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-error hover:bg-pi-tool-error cursor-pointer"
+                  className="absolute top-3 right-3 hidden group-hover:inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
                 >
                   <svg
                     width="10"
