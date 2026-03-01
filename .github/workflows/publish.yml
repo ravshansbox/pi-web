@@ -24,8 +24,15 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Build artefacts
+        run: npm run build && npm run build:bin
+
+      - name: Verify npm package contents
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: true
+        run: |
+          npm pack --json --dry-run > pack.json
+          node -e "const fs=require('node:fs');const pack=JSON.parse(fs.readFileSync('pack.json','utf8'))?.[0];const files=pack?.files?.map(f=>f.path)||[];if(!files.includes('bin/pi-web.js')){console.error('bin/pi-web.js is missing from the publish artefact');process.exit(1);}"
 
       - name: Determine release version
         id: version
