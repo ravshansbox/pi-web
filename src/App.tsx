@@ -54,7 +54,15 @@ type ProjectSummary = {
   lastSessionTimestamp?: string;
 };
 
-type Model = { id: string; name: string; provider: string; contextWindow?: number };
+type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+type Model = {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+  reasoning?: boolean;
+};
 
 type SessionStats = {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
@@ -62,6 +70,7 @@ type SessionStats = {
 };
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 function shortenCwd(cwd: string): string {
   const home = cwd.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
@@ -97,6 +106,11 @@ function newSessionRoutePath(cwd: string): string {
   return `/${encodeRouteParam(cwd)}/${NEW_SESSION_ROUTE_PARAM}`;
 }
 
+function normaliseThinkingLevel(value: unknown): ThinkingLevel | null {
+  if (typeof value !== 'string') return null;
+  return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : null;
+}
+
 export default function App() {
   const navigate = useNavigate();
   const routeLocation = useLocation();
@@ -110,6 +124,7 @@ export default function App() {
   const [manualProjectCwds, setManualProjectCwds] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off');
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [promptQueue, setPromptQueue] = useState<string[]>([]);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
@@ -262,6 +277,12 @@ export default function App() {
     [availableModels, selectedProvider],
   );
   const selectedModelId = currentModel?.provider === selectedProvider ? currentModel.id : '';
+  const thinkingLevelOptions = useMemo<ThinkingLevel[]>(() => {
+    const levels = currentModel?.reasoning === false ? (['off'] as ThinkingLevel[]) : THINKING_LEVELS;
+    return levels.includes(thinkingLevel)
+      ? levels
+      : [thinkingLevel, ...levels.filter((level) => level !== thinkingLevel)];
+  }, [currentModel?.reasoning, thinkingLevel]);
 
   const contextUsageTokens = useMemo(
     () => estimateContextTokens(currentMessages),
@@ -481,6 +502,8 @@ export default function App() {
             id: m.id,
             name: m.name,
             provider: m.provider,
+            contextWindow: m.contextWindow,
+            reasoning: m.reasoning,
           }));
           if (models.length > 0) {
             setAvailableModels(models);
@@ -501,6 +524,7 @@ export default function App() {
               name: model.name,
               provider: model.provider,
               contextWindow: model.contextWindow,
+              reasoning: model.reasoning,
             };
             setCurrentModel(m);
             currentModelRef.current = m;
@@ -510,6 +534,9 @@ export default function App() {
           } else {
             scheduleRequestModels();
           }
+
+          const stateThinkingLevel = normaliseThinkingLevel(state.thinkingLevel);
+          if (stateThinkingLevel) setThinkingLevel(stateThinkingLevel);
 
           const requestId = typeof event.id === 'string' ? event.id : '';
           const syncRequest = requestId
@@ -568,10 +595,22 @@ export default function App() {
               name: model.name,
               provider: model.provider,
               contextWindow: model.contextWindow,
+              reasoning: model.reasoning,
             };
             setCurrentModel(m);
             currentModelRef.current = m;
           }
+          wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
+        }
+        if (event.command === 'set_thinking_level' && event.success) {
+          const level = normaliseThinkingLevel(event.data?.level);
+          if (level) setThinkingLevel(level);
+          wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
+        }
+        if (event.command === 'cycle_thinking_level' && event.success) {
+          const level = normaliseThinkingLevel(event.data?.level);
+          if (level) setThinkingLevel(level);
+          wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
         }
         if (event.command === 'get_session_stats' && event.success) {
           setSessionStats(event.data);
@@ -746,10 +785,13 @@ export default function App() {
             name: model.name,
             provider: model.provider,
             contextWindow: model.contextWindow,
+            reasoning: model.reasoning,
           };
           setCurrentModel(m);
           currentModelRef.current = m;
         }
+        const level = normaliseThinkingLevel(event.thinkingLevel ?? event.level);
+        if (level) setThinkingLevel(level);
         break;
       }
     }
@@ -918,6 +960,16 @@ export default function App() {
     });
   }
 
+  function handleThinkingLevelChange(level: string) {
+    const nextLevel = normaliseThinkingLevel(level);
+    if (!nextLevel) return;
+    setThinkingLevel(nextLevel);
+    wsSend({
+      type: 'rpc_command',
+      command: { type: 'set_thinking_level', level: nextLevel, id: 'set_thinking_level' },
+    });
+  }
+
   async function deleteSession(file: string) {
     const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd ?? selectedProjectCwd ?? '';
     try {
@@ -1066,6 +1118,22 @@ export default function App() {
               </span>
             )}
             {availableModels.length === 0 && currentModel && <span>{currentModel.id}</span>}
+            {hasActiveSession && (availableModels.length > 0 || currentModel) && (
+              <select
+                value={thinkingLevel}
+                onChange={(e) => handleThinkingLevelChange(e.target.value)}
+                disabled={!isConnected || isStreaming || currentModel?.reasoning === false}
+                aria-label="thinking level"
+                title="thinking level"
+                className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+              >
+                {thinkingLevelOptions.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </select>
+            )}
             {sessionStats && (
               <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
                 {sessionStats.tokens.input > 0 && (
