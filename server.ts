@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RpcSession } from './rpc.js';
@@ -53,17 +54,11 @@ const AGENT = parseAgent(getArg('agent'));
 const PORT = parseInt(getArg('port') || '8192', 10);
 const HOST = getArg('host') || '127.0.0.1';
 const AGENT_CMD = getAgentCommand(AGENT);
-const DEFAULT_IDLE_SESSION_TTL_MS = 60_000;
-const idleSessionTtlMsEnv = parseInt(process.env.PI_WEB_IDLE_SESSION_TTL_MS || '', 10);
-const IDLE_SESSION_TTL_MS =
-  Number.isFinite(idleSessionTtlMsEnv) && idleSessionTtlMsEnv >= 0
-    ? idleSessionTtlMsEnv
-    : DEFAULT_IDLE_SESSION_TTL_MS;
+const IDLE_SESSION_TTL_MS = 60_000;
 const isWatchMode =
   process.argv.includes('--watch') ||
-  process.execArgv.some((arg) => arg === '--watch' || arg.startsWith('--watch-')) ||
-  process.env.WATCH_REPORT_DEPENDENCIES != null;
-const isDev = process.env.NODE_ENV === 'development' || isWatchMode;
+  process.execArgv.some((arg) => arg === '--watch' || arg.startsWith('--watch-'));
+const isDev = isWatchMode;
 
 const distDirCandidates = [join(__dirname, 'dist'), join(__dirname, '..', '..', 'dist')];
 const distDir =
@@ -71,7 +66,7 @@ const distDir =
   distDirCandidates[0];
 const htmlPath = join(distDir, 'index.html');
 const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
-const HOME_DIR = resolve(process.env.HOME || '/');
+const HOME_DIR = resolve(homedir() || '/');
 
 type FolderEntry = {
   name: string;
@@ -463,7 +458,7 @@ wss.on('connection', (ws: WebSocket) => {
       const cwd =
         typeof msg.cwd === 'string' && msg.cwd.trim().length > 0
           ? resolve(msg.cwd)
-          : resolve(process.env.HOME || '/');
+          : HOME_DIR;
       const sessionFile =
         typeof msg.sessionFile === 'string' && msg.sessionFile.length > 0
           ? basename(msg.sessionFile)
