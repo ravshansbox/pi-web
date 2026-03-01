@@ -2305,7 +2305,7 @@ function SessionPicker({
                 <button
                   onClick={() => onDeleteSession(session.file)}
                   title="delete session"
-                  className="absolute top-3 right-3 inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto"
+                  className="absolute top-3 right-3 inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
                 >
                   <svg
                     width="10"
