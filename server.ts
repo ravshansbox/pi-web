@@ -439,6 +439,11 @@ wss.on('connection', (ws: WebSocket) => {
       return;
     }
 
+    if (msg.type === 'detach_session') {
+      detachSocket(ws);
+      return;
+    }
+
     if (msg.type === 'rpc_command') {
       const managed = socketBindings.get(ws);
       if (!managed) {

@@ -561,6 +561,13 @@ export default function App() {
       input.focus();
     });
   }, [activeSessionFile, hasActiveSession, isHistoryView, isNewSessionRoute, selectedProjectCwd]);
+
+  useEffect(() => {
+    if (isHistoryView) return;
+    if (!hasActiveSessionRef.current) return;
+    detachSession();
+  }, [isHistoryView]);
+
   useEffect(() => {
     if (!hasExtraPathSegments) return;
     navigate('/', { replace: true });
@@ -731,6 +738,16 @@ export default function App() {
     setHasActiveSession(true);
     void loadSessions();
     return true;
+  }
+
+  function detachSession() {
+    wsSend({ type: 'detach_session' });
+    pendingSessionRef.current = null;
+    activeRpcSessionRef.current = null;
+    setHasActiveSession(false);
+    setIsStreaming(false);
+    setSessionStats(null);
+    void loadSessions();
   }
 
   function requestModels(): boolean {
@@ -1836,13 +1853,14 @@ function FolderBrowser({
               viewBox="0 0 16 16"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <path d="M8 3h5v5" />
-              <path d="M13 3 7 9" />
-              <path d="M11 8v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" />
+              <path d="M1.5 6.2V4.8a1 1 0 0 1 1-1h3l1.3 1.4h6.7a1 1 0 0 1 1 1v1" />
+              <path d="M1.5 7h13l-1.2 5.1a1 1 0 0 1-1 .8H3.7a1 1 0 0 1-1-.8L1.5 7Z" />
+              <path d="M7.3 10h3.2" />
+              <path d="m9.3 8.9 1.2 1.1-1.2 1.1" />
             </svg>
           </button>
           <button
