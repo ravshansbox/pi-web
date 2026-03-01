@@ -10,6 +10,7 @@ body,
 
 :root {
   --composer-control-size: 42px;
+  color-scheme: light;
 }
 
 *,
@@ -39,6 +40,7 @@ body,
   --color-pi-warning: #9a7326;
   --color-pi-muted: #6c6c6c;
   --color-pi-dim: #767676;
+  --color-pi-text: #1f2933;
   --color-pi-user-bg: #f6f6f6;
   --color-pi-tool-pending: #e8e8f0;
   --color-pi-tool-success: #e8f0e8;
@@ -50,6 +52,8 @@ body,
   --color-pi-tool-output: #6c6c6c;
   --color-pi-page-bg: #f8f8f8;
   --color-pi-card-bg: #ffffff;
+  --color-pi-control-bg: #ffffff;
+  --color-pi-control-fg: #1f2933;
   --color-syntax-comment: #008000;
   --color-syntax-keyword: #0000ff;
   --color-syntax-fn: #795e26;
@@ -57,6 +61,45 @@ body,
   --color-syntax-string: #a31515;
   --color-syntax-number: #098658;
   --color-syntax-type: #267f99;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-pi-accent: #7ca6a6;
+    --color-pi-border: #6f92b2;
+    --color-pi-border-muted: #3f4b57;
+    --color-pi-success: #78b178;
+    --color-pi-error: #d17a7a;
+    --color-pi-warning: #d1a454;
+    --color-pi-muted: #9aa4ad;
+    --color-pi-dim: #7d8892;
+    --color-pi-text: #e5edf3;
+    --color-pi-user-bg: #1b2430;
+    --color-pi-tool-pending: #212a36;
+    --color-pi-tool-success: #1f2c23;
+    --color-pi-tool-error: #322326;
+    --color-pi-md-heading: #d1a454;
+    --color-pi-md-link: #8fb6d8;
+    --color-pi-md-code: #8fbfbf;
+    --color-pi-md-code-block: #82b182;
+    --color-pi-tool-output: #a8b3bc;
+    --color-pi-page-bg: #10151b;
+    --color-pi-card-bg: #151c24;
+    --color-pi-control-bg: #0f1720;
+    --color-pi-control-fg: #e5edf3;
+    --color-syntax-comment: #8dc891;
+    --color-syntax-keyword: #7fa8ff;
+    --color-syntax-fn: #d8ba86;
+    --color-syntax-var: #9fc3ff;
+    --color-syntax-string: #f0a6a6;
+    --color-syntax-number: #7fd4a5;
+    --color-syntax-type: #7fc8e1;
+  }
+}
+
+.prompt-input::placeholder {
+  color: var(--color-pi-muted);
 }
 
 @keyframes pulse-dot {

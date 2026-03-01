@@ -1746,7 +1746,7 @@ export default function App() {
   const connectionA11yLabel = isStreaming ? 'streaming response' : 'session status';
 
   return (
-    <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-sm font-mono overflow-hidden">
+    <div className="flex flex-col h-full bg-pi-page-bg text-pi-text text-sm font-mono overflow-hidden">
       {isProjectsView && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <FolderBrowser
@@ -1871,7 +1871,7 @@ export default function App() {
                       value={selectedProvider}
                       onChange={(e) => handleProviderChange(e.target.value)}
                       disabled={isStreaming}
-                      className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                      className="font-mono text-pi-control-fg bg-pi-control-bg border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
                     >
                       {providers.map((p) => (
                         <option key={p} value={p}>
@@ -1883,7 +1883,7 @@ export default function App() {
                       value={selectedModelId}
                       onChange={(e) => handleModelChange(e.target.value)}
                       disabled={isStreaming}
-                      className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                      className="font-mono text-pi-control-fg bg-pi-control-bg border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
                     >
                       {modelsForProvider.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -1901,7 +1901,7 @@ export default function App() {
                     disabled={!isConnected || isStreaming || currentModel?.reasoning === false}
                     aria-label="thinking level"
                     title="thinking level"
-                    className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                    className="font-mono text-pi-control-fg bg-pi-control-bg border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
                   >
                     {thinkingLevelOptions.map((level) => (
                       <option key={level} value={level}>
@@ -1997,7 +1997,7 @@ export default function App() {
                     sendPrompt();
                   }
                 }}
-                className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 font-mono leading-5 resize-none min-h-[var(--composer-control-size)] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
+                className="prompt-input flex-1 bg-pi-control-bg text-pi-control-fg border border-pi-border-muted rounded-lg px-3 py-2.5 font-mono leading-5 resize-none min-h-[var(--composer-control-size)] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
               />
               <div className="flex flex-row gap-1 flex-shrink-0">
                 <button
@@ -2193,7 +2193,7 @@ function FolderBrowser({
                 className="w-full text-left px-4 py-3 hover:bg-pi-user-bg cursor-pointer"
                 title={folder.path}
               >
-                <div className="text-sm text-gray-800 truncate">{folder.name}</div>
+                <div className="text-sm text-pi-text truncate">{folder.name}</div>
               </button>
             ))}
           </div>
@@ -2294,7 +2294,7 @@ function SessionPicker({
                   onClick={() => onSelectSession(session.file)}
                   className="w-full text-left cursor-pointer"
                 >
-                  <div className="text-sm text-gray-800 truncate pr-8">{label}</div>
+                  <div className="text-sm text-pi-text truncate pr-8">{label}</div>
                   <div className="text-[11px] text-pi-muted mt-1 flex items-center gap-1.5 flex-wrap">
                     <span>{session.messageCount} msgs</span>
                     <span>·</span>
