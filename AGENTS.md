@@ -6,3 +6,4 @@
 
 ## Version control
 - Use Conventional Commits format for all commit messages (e.g., `feat: ...`, `fix: ...`, `chore: ...`).
+- Create atomic commits: each commit should contain a single logical change.
