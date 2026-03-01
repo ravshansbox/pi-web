@@ -1836,50 +1836,54 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 px-4 py-1.5 md:px-6 border-t border-pi-border-muted bg-pi-card-bg text-xs text-pi-muted flex-wrap">
-            {availableModels.length > 0 && (
-              <span className="flex items-center gap-1.5">
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => handleProviderChange(e.target.value)}
-                  disabled={isStreaming}
-                  className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
-                >
-                  {providers.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedModelId}
-                  onChange={(e) => handleModelChange(e.target.value)}
-                  disabled={isStreaming}
-                  className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
-                >
-                  {modelsForProvider.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id}
-                    </option>
-                  ))}
-                </select>
+            {(availableModels.length > 0 || currentModel) && (
+              <span className="flex items-center gap-2.5 flex-wrap">
+                {availableModels.length > 0 && (
+                  <>
+                    <select
+                      value={selectedProvider}
+                      onChange={(e) => handleProviderChange(e.target.value)}
+                      disabled={isStreaming}
+                      className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                    >
+                      {providers.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={selectedModelId}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      disabled={isStreaming}
+                      className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                    >
+                      {modelsForProvider.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                {availableModels.length === 0 && currentModel && <span>{currentModel.id}</span>}
+                {hasActiveSession && (
+                  <select
+                    value={thinkingLevel}
+                    onChange={(e) => handleThinkingLevelChange(e.target.value)}
+                    disabled={!isConnected || isStreaming || currentModel?.reasoning === false}
+                    aria-label="thinking level"
+                    title="thinking level"
+                    className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                  >
+                    {thinkingLevelOptions.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </span>
-            )}
-            {availableModels.length === 0 && currentModel && <span>{currentModel.id}</span>}
-            {hasActiveSession && (availableModels.length > 0 || currentModel) && (
-              <select
-                value={thinkingLevel}
-                onChange={(e) => handleThinkingLevelChange(e.target.value)}
-                disabled={!isConnected || isStreaming || currentModel?.reasoning === false}
-                aria-label="thinking level"
-                title="thinking level"
-                className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
-              >
-                {thinkingLevelOptions.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
             )}
             {sessionStats && (
               <span className="flex items-center gap-2 text-pi-dim ml-auto flex-wrap">
