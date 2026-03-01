@@ -200,6 +200,14 @@ export default function App() {
   }, [inputValue]);
 
   useEffect(() => {
+    if (!isHistoryView || !hasActiveSession) return;
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input || input.disabled) return;
+      input.focus();
+    });
+  }, [activeSessionFile, hasActiveSession, isHistoryView, isNewSessionRoute, selectedProjectCwd]);
+  useEffect(() => {
     if (!hasExtraPathSegments) return;
     navigate('/', { replace: true });
   }, [hasExtraPathSegments, navigate]);
@@ -943,7 +951,7 @@ export default function App() {
   const connectionA11yLabel = isStreaming ? 'streaming response' : 'session status';
 
   return (
-    <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-xs md:text-sm font-mono overflow-hidden">
+    <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-sm font-mono overflow-hidden">
       {isProjectsView && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <ProjectPicker
@@ -1035,7 +1043,7 @@ export default function App() {
                   value={selectedProvider}
                   onChange={(e) => handleProviderChange(e.target.value)}
                   disabled={isStreaming}
-                  className="!text-base md:!text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                  className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
                 >
                   {providers.map((p) => (
                     <option key={p} value={p}>
@@ -1047,7 +1055,7 @@ export default function App() {
                   value={selectedModelId}
                   onChange={(e) => handleModelChange(e.target.value)}
                   disabled={isStreaming}
-                  className="!text-base md:!text-xs font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
+                  className="font-mono text-gray-700 bg-white border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
                 >
                   {modelsForProvider.map((m) => (
                     <option key={m.id} value={m.id}>

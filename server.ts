@@ -167,7 +167,15 @@ wss.on('connection', (ws: WebSocket) => {
     }
 
     if (msg.type === 'start_session') {
-      rpcSessions.get(ws)?.kill();
+      const previousRpc = rpcSessions.get(ws);
+      if (previousRpc) {
+        rpcSessions.delete(ws);
+        previousRpc.kill();
+      }
+
+      const rpcRef: { current: RpcSession | null } = { current: null };
+      const isCurrentRpc = () => rpcRef.current != null && rpcSessions.get(ws) === rpcRef.current;
+
       const rpc = new RpcSession({
         piCmd: PI_CMD,
         cwd: msg.cwd || process.env.HOME || '/',
@@ -175,19 +183,23 @@ wss.on('connection', (ws: WebSocket) => {
           ? getSessionFilePath(msg.cwd || process.env.HOME || '/', msg.sessionFile)
           : undefined,
         onEvent: (event) => {
+          if (!isCurrentRpc()) return;
           if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ type: 'rpc_event', event }));
         },
         onError: (error) => {
+          if (!isCurrentRpc()) return;
           if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ type: 'error', message: error }));
         },
         onExit: (code) => {
+          if (!isCurrentRpc()) return;
           rpcSessions.delete(ws);
           if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ type: 'session_ended', code }));
         },
       });
+      rpcRef.current = rpc;
       rpcSessions.set(ws, rpc);
       return;
     }
