@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
@@ -257,9 +258,19 @@ type ManagedRpcSession = {
 
 const rpcSessions = new Map<string, ManagedRpcSession>();
 const socketBindings = new Map<WebSocket, ManagedRpcSession>();
+const socketClientIds = new WeakMap<WebSocket, string>();
 
-function buildSessionKey(cwd: string, sessionFile: string | null): string {
-  return `${cwd}::${sessionFile ? basename(sessionFile) : '__new__'}`;
+function getSocketClientId(ws: WebSocket): string {
+  const existing = socketClientIds.get(ws);
+  if (existing) return existing;
+  const next = randomUUID();
+  socketClientIds.set(ws, next);
+  return next;
+}
+
+function buildSessionKey(cwd: string, sessionFile: string | null, scope?: string): string {
+  if (sessionFile) return `${cwd}::${basename(sessionFile)}`;
+  return `${cwd}::__new__::${scope ?? 'shared'}`;
 }
 
 function getSessionRuntimeStatus(cwd: string, sessionFile: string): {
@@ -379,7 +390,11 @@ function updateSessionModelCapability(managed: ManagedRpcSession, event: any) {
   }
 }
 
-function createManagedSession(cwd: string, sessionFile: string | null): ManagedRpcSession {
+function createManagedSession(
+  cwd: string,
+  sessionFile: string | null,
+  initialKey: string,
+): ManagedRpcSession {
   const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
   let managed: ManagedRpcSession | null = null;
 
@@ -431,7 +446,7 @@ function createManagedSession(cwd: string, sessionFile: string | null): ManagedR
     isClosing: false,
   };
 
-  registerManagedSessionKey(managed, buildSessionKey(cwd, sessionFile));
+  registerManagedSessionKey(managed, initialKey);
   return managed;
 }
 
@@ -453,7 +468,11 @@ wss.on('connection', (ws: WebSocket) => {
         typeof msg.sessionFile === 'string' && msg.sessionFile.length > 0
           ? basename(msg.sessionFile)
           : null;
-      const key = buildSessionKey(cwd, sessionFile);
+      const key = buildSessionKey(
+        cwd,
+        sessionFile,
+        sessionFile ? undefined : getSocketClientId(ws),
+      );
 
       const currentlyBound = socketBindings.get(ws);
       if (currentlyBound?.keys.has(key)) {
@@ -464,7 +483,7 @@ wss.on('connection', (ws: WebSocket) => {
       detachSocket(ws);
 
       let managed = rpcSessions.get(key);
-      if (!managed || managed.isClosing) managed = createManagedSession(cwd, sessionFile);
+      if (!managed || managed.isClosing) managed = createManagedSession(cwd, sessionFile, key);
 
       managed.clients.add(ws);
       clearIdleCleanupTimer(managed);
