@@ -2076,7 +2076,11 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
   );
   const hasToolPart = msg.parts.some((part) => part.type === 'tool');
   const isToolOnlyMessage = !isUser && !isSteering && hasToolPart && !hasVisibleTextPart;
-  const bubbleToneClass = isUser || isSteering ? 'bg-pi-user-bg border border-pi-border-muted' : 'bg-pi-card-bg border border-pi-border-muted';
+  const bubbleToneClass = isUser
+    ? 'bg-pi-tool-success border border-pi-border-muted'
+    : isToolOnlyMessage
+      ? 'bg-pi-user-bg border border-pi-border-muted'
+      : 'bg-pi-card-bg border border-pi-border-muted';
 
   return (
     <div className="mb-2 min-w-0">
@@ -2348,11 +2352,7 @@ function ToolPart({ part }: { part: MessagePart }) {
   const preOverflowClass = part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
 
   return (
-    <div
-      className={`my-0 px-1.5 py-1 text-xs overflow-hidden ${
-        part.done ? (part.isError ? 'bg-pi-tool-error' : 'bg-pi-tool-success') : 'bg-pi-tool-pending'
-      }`}
-    >
+    <div className="my-0 px-1.5 py-1 text-xs overflow-hidden bg-pi-user-bg">
       <pre
         className={`tool-io-pre ${preMaxHeightClass} ${preOverflowClass} ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}
       >
