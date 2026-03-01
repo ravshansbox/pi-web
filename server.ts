@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
-import { dirname, extname, join, normalize } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RpcSession } from './rpc.js';
@@ -36,7 +37,17 @@ function getArg(name: string): string | undefined {
 const PORT = parseInt(getArg('port') || process.env.PORT || '8192', 10);
 const HOST = getArg('host') || process.env.HOST || '127.0.0.1';
 const PI_CMD = process.env.PI_CMD || 'npx -y @mariozechner/pi-coding-agent@latest';
-const isDev = process.argv.includes('--watch') || process.env.NODE_ENV === 'development';
+const DEFAULT_IDLE_SESSION_TTL_MS = 60_000;
+const idleSessionTtlMsEnv = parseInt(process.env.PI_WEB_IDLE_SESSION_TTL_MS || '', 10);
+const IDLE_SESSION_TTL_MS =
+  Number.isFinite(idleSessionTtlMsEnv) && idleSessionTtlMsEnv >= 0
+    ? idleSessionTtlMsEnv
+    : DEFAULT_IDLE_SESSION_TTL_MS;
+const isWatchMode =
+  process.argv.includes('--watch') ||
+  process.execArgv.some((arg) => arg === '--watch' || arg.startsWith('--watch-')) ||
+  process.env.WATCH_REPORT_DEPENDENCIES != null;
+const isDev = process.env.NODE_ENV === 'development' || isWatchMode;
 
 const distDirCandidates = [join(__dirname, 'dist'), join(__dirname, '..', '..', 'dist')];
 const distDir =
@@ -44,6 +55,47 @@ const distDir =
   distDirCandidates[0];
 const htmlPath = join(distDir, 'index.html');
 const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
+const HOME_DIR = resolve(process.env.HOME || '/');
+
+type FolderEntry = {
+  name: string;
+  path: string;
+};
+
+function isWithinRoot(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+async function listFolders(cwdQuery?: string | null): Promise<{
+  cwd: string;
+  root: string;
+  folders: FolderEntry[];
+  error?: string;
+}> {
+  const requested = cwdQuery ? resolve(cwdQuery) : HOME_DIR;
+  const cwd = isWithinRoot(requested, HOME_DIR) ? requested : HOME_DIR;
+
+  try {
+    const entries = await readdir(cwd, { withFileTypes: true });
+    const folders = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => ({
+        name: entry.name,
+        path: join(cwd, entry.name),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { cwd, root: HOME_DIR, folders };
+  } catch (err) {
+    return {
+      cwd,
+      root: HOME_DIR,
+      folders: [],
+      error: `unable to read ${cwd}: ${String(err)}`,
+    };
+  }
+}
 
 const contentTypes: Record<string, string> = {
   '.html': 'text/html',
@@ -76,10 +128,26 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/api/sessions') {
+  if (req.url?.startsWith('/api/sessions')) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const cwd = url.searchParams.get('cwd') || undefined;
     listSessions({ cwd, limit: 50 })
+      .then((data) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      })
+      .catch((err) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(err) }));
+      });
+    return;
+  }
+
+  if (req.url?.startsWith('/api/folders')) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const cwd = url.searchParams.get('cwd');
+
+    listFolders(cwd)
       .then((data) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
@@ -155,7 +223,152 @@ const server = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server });
-const rpcSessions = new Map<WebSocket, RpcSession>();
+
+type ManagedRpcSession = {
+  cwd: string;
+  sessionFile: string | null;
+  rpc: RpcSession;
+  clients: Set<WebSocket>;
+  isAgentRunning: boolean;
+  keys: Set<string>;
+  idleCleanupTimer: NodeJS.Timeout | null;
+  isClosing: boolean;
+};
+
+const rpcSessions = new Map<string, ManagedRpcSession>();
+const socketBindings = new Map<WebSocket, ManagedRpcSession>();
+
+function buildSessionKey(cwd: string, sessionFile: string | null): string {
+  return `${cwd}::${sessionFile ? basename(sessionFile) : '__new__'}`;
+}
+
+function sendToSocket(ws: WebSocket, payload: any) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(payload));
+}
+
+function broadcast(managed: ManagedRpcSession, payload: any) {
+  for (const client of managed.clients) {
+    sendToSocket(client, payload);
+  }
+}
+
+function clearIdleCleanupTimer(managed: ManagedRpcSession) {
+  if (!managed.idleCleanupTimer) return;
+  clearTimeout(managed.idleCleanupTimer);
+  managed.idleCleanupTimer = null;
+}
+
+function unregisterManagedSession(managed: ManagedRpcSession) {
+  for (const key of managed.keys) {
+    if (rpcSessions.get(key) === managed) rpcSessions.delete(key);
+  }
+  managed.keys.clear();
+}
+
+function registerManagedSessionKey(managed: ManagedRpcSession, key: string) {
+  managed.keys.add(key);
+  rpcSessions.set(key, managed);
+}
+
+function closeManagedSession(managed: ManagedRpcSession) {
+  if (managed.isClosing) return;
+  managed.isClosing = true;
+  clearIdleCleanupTimer(managed);
+  unregisterManagedSession(managed);
+  managed.rpc.kill();
+}
+
+function cleanupIfIdle(managed: ManagedRpcSession) {
+  if (managed.isClosing) return;
+  if (managed.clients.size > 0) {
+    clearIdleCleanupTimer(managed);
+    return;
+  }
+  if (managed.isAgentRunning) {
+    clearIdleCleanupTimer(managed);
+    return;
+  }
+  if (managed.idleCleanupTimer) return;
+
+  managed.idleCleanupTimer = setTimeout(() => {
+    managed.idleCleanupTimer = null;
+    if (managed.isClosing) return;
+    if (managed.clients.size > 0) return;
+    if (managed.isAgentRunning) return;
+    closeManagedSession(managed);
+  }, IDLE_SESSION_TTL_MS);
+}
+
+function detachSocket(ws: WebSocket) {
+  const current = socketBindings.get(ws);
+  if (!current) return;
+  current.clients.delete(ws);
+  socketBindings.delete(ws);
+  cleanupIfIdle(current);
+}
+
+function registerDiscoveredSessionKey(managed: ManagedRpcSession, event: any) {
+  if (event?.type !== 'response' || event?.command !== 'get_state') return;
+  const sessionPath = event?.data?.sessionFile;
+  if (typeof sessionPath !== 'string' || sessionPath.length === 0) return;
+  const key = buildSessionKey(managed.cwd, basename(sessionPath));
+  registerManagedSessionKey(managed, key);
+}
+
+function createManagedSession(cwd: string, sessionFile: string | null): ManagedRpcSession {
+  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile) : undefined;
+  let managed: ManagedRpcSession | null = null;
+
+  const rpc = new RpcSession({
+    piCmd: PI_CMD,
+    cwd,
+    sessionFile: sessionPath,
+    onEvent: (event) => {
+      if (!managed) return;
+      if (event?.type === 'agent_start') {
+        managed.isAgentRunning = true;
+        clearIdleCleanupTimer(managed);
+      }
+      if (event?.type === 'agent_end') {
+        managed.isAgentRunning = false;
+        cleanupIfIdle(managed);
+      }
+      registerDiscoveredSessionKey(managed, event);
+      broadcast(managed, { type: 'rpc_event', event });
+    },
+    onError: (error) => {
+      if (!managed) return;
+      broadcast(managed, { type: 'error', message: error });
+    },
+    onExit: (code) => {
+      if (!managed) return;
+      managed.isAgentRunning = false;
+      managed.isClosing = true;
+      clearIdleCleanupTimer(managed);
+      unregisterManagedSession(managed);
+      broadcast(managed, { type: 'session_ended', code });
+      for (const client of managed.clients) {
+        if (socketBindings.get(client) === managed) socketBindings.delete(client);
+      }
+      managed.clients.clear();
+    },
+  });
+
+  managed = {
+    cwd,
+    sessionFile,
+    rpc,
+    clients: new Set<WebSocket>(),
+    isAgentRunning: false,
+    keys: new Set<string>(),
+    idleCleanupTimer: null,
+    isClosing: false,
+  };
+
+  registerManagedSessionKey(managed, buildSessionKey(cwd, sessionFile));
+  return managed;
+}
 
 wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (raw) => {
@@ -167,61 +380,50 @@ wss.on('connection', (ws: WebSocket) => {
     }
 
     if (msg.type === 'start_session') {
-      const previousRpc = rpcSessions.get(ws);
-      if (previousRpc) {
-        rpcSessions.delete(ws);
-        previousRpc.kill();
+      const cwd =
+        typeof msg.cwd === 'string' && msg.cwd.trim().length > 0
+          ? resolve(msg.cwd)
+          : resolve(process.env.HOME || '/');
+      const sessionFile =
+        typeof msg.sessionFile === 'string' && msg.sessionFile.length > 0
+          ? basename(msg.sessionFile)
+          : null;
+      const key = buildSessionKey(cwd, sessionFile);
+
+      const currentlyBound = socketBindings.get(ws);
+      if (currentlyBound?.keys.has(key)) {
+        clearIdleCleanupTimer(currentlyBound);
+        return;
       }
 
-      const rpcRef: { current: RpcSession | null } = { current: null };
-      const isCurrentRpc = () => rpcRef.current != null && rpcSessions.get(ws) === rpcRef.current;
+      detachSocket(ws);
 
-      const rpc = new RpcSession({
-        piCmd: PI_CMD,
-        cwd: msg.cwd || process.env.HOME || '/',
-        sessionFile: msg.sessionFile
-          ? getSessionFilePath(msg.cwd || process.env.HOME || '/', msg.sessionFile)
-          : undefined,
-        onEvent: (event) => {
-          if (!isCurrentRpc()) return;
-          if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ type: 'rpc_event', event }));
-        },
-        onError: (error) => {
-          if (!isCurrentRpc()) return;
-          if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ type: 'error', message: error }));
-        },
-        onExit: (code) => {
-          if (!isCurrentRpc()) return;
-          rpcSessions.delete(ws);
-          if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ type: 'session_ended', code }));
-        },
-      });
-      rpcRef.current = rpc;
-      rpcSessions.set(ws, rpc);
+      let managed = rpcSessions.get(key);
+      if (!managed || managed.isClosing) managed = createManagedSession(cwd, sessionFile);
+
+      managed.clients.add(ws);
+      clearIdleCleanupTimer(managed);
+      socketBindings.set(ws, managed);
       return;
     }
 
     if (msg.type === 'rpc_command') {
-      const rpc = rpcSessions.get(ws);
-      if (!rpc) {
-        ws.send(JSON.stringify({ type: 'error', message: 'no active session' }));
+      const managed = socketBindings.get(ws);
+      if (!managed) {
+        sendToSocket(ws, { type: 'error', message: 'no active session' });
         return;
       }
-      rpc.send(msg.command);
+      managed.rpc.send(msg.command);
       return;
     }
 
     if (msg.type === 'ping') {
-      ws.send(JSON.stringify({ type: 'pong' }));
+      sendToSocket(ws, { type: 'pong' });
     }
   });
 
   ws.on('close', () => {
-    rpcSessions.get(ws)?.kill();
-    rpcSessions.delete(ws);
+    detachSocket(ws);
   });
 });
 

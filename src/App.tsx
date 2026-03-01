@@ -47,11 +47,9 @@ type ParsedMessage = {
   usage?: Usage;
 };
 
-type ProjectSummary = {
-  cwd: string;
-  label: string;
-  sessionCount: number;
-  lastSessionTimestamp?: string;
+type FolderEntry = {
+  name: string;
+  path: string;
 };
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -71,9 +69,16 @@ type SessionStats = {
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
 const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const EXTERNAL_SESSION_SYNC_INTERVAL_MS = 1200;
+
+function asHomeRelativePath(cwd: string): string {
+  return cwd
+    .replace(/^\/Users\/[^/]+(?=\/|$)/, '~')
+    .replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+}
 
 function shortenCwd(cwd: string): string {
-  const home = cwd.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
+  const home = asHomeRelativePath(cwd);
   const parts = home.split('/').filter(Boolean);
   if (parts.length <= 2) return home;
   return '~/../' + parts[parts.length - 1];
@@ -121,7 +126,11 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [hasActiveSession, setHasActiveSession] = useState(false);
-  const [manualProjectCwds, setManualProjectCwds] = useState<string[]>([]);
+  const [folderBrowserCwd, setFolderBrowserCwd] = useState<string | null>(null);
+  const [folderBrowserRoot, setFolderBrowserRoot] = useState<string | null>(null);
+  const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
+  const [isFolderBrowserLoading, setIsFolderBrowserLoading] = useState(false);
+  const [folderBrowserError, setFolderBrowserError] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off');
@@ -166,6 +175,11 @@ export default function App() {
   const activeRpcSessionRef = useRef<{ cwd?: string; sessionFile: string | null } | null>(null);
   const selectedProjectCwdRef = useRef<string | null>(null);
   const syncNavigatedRef = useRef(false);
+  const isStreamingRef = useRef(false);
+  const externalSessionSyncTimerRef = useRef<number | null>(null);
+  const externalSessionSyncAbortRef = useRef<AbortController | null>(null);
+  const externalSessionSyncInFlightRef = useRef(false);
+  const lastExternalSessionSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -176,6 +190,9 @@ export default function App() {
   useEffect(() => {
     hasActiveSessionRef.current = hasActiveSession;
   }, [hasActiveSession]);
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
   useEffect(() => {
     availableModelsRef.current = availableModels;
   }, [availableModels]);
@@ -197,6 +214,12 @@ export default function App() {
     loadSessions();
     return () => {
       if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
+      if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+      if (externalSessionSyncTimerRef.current) window.clearInterval(externalSessionSyncTimerRef.current);
+      externalSessionSyncTimerRef.current = null;
+      externalSessionSyncAbortRef.current?.abort();
+      externalSessionSyncAbortRef.current = null;
+      externalSessionSyncInFlightRef.current = false;
       wsRef.current?.close();
     };
   }, []);
@@ -288,34 +311,10 @@ export default function App() {
     () => estimateContextTokens(currentMessages),
     [currentMessages],
   );
-  const projectSummaries = useMemo<ProjectSummary[]>(() => {
-    const allCwds = new Set<string>();
-    for (const cwd of manualProjectCwds) allCwds.add(cwd);
-    for (const session of sessions) {
-      if (session.cwd) allCwds.add(session.cwd);
-    }
-
-    const projects = Array.from(allCwds).map((cwd) => {
-      const projectSessions = sessions.filter((session) => session.cwd === cwd);
-      const lastSessionTimestamp = projectSessions.reduce<string | undefined>((latest, session) => {
-        if (!latest || session.timestamp > latest) return session.timestamp;
-        return latest;
-      }, undefined);
-
-      return {
-        cwd,
-        label: shortenCwd(cwd),
-        sessionCount: projectSessions.length,
-        lastSessionTimestamp,
-      };
-    });
-
-    return projects.sort((a, b) => {
-      const tsCompare = (b.lastSessionTimestamp ?? '').localeCompare(a.lastSessionTimestamp ?? '');
-      if (tsCompare !== 0) return tsCompare;
-      return a.label.localeCompare(b.label);
-    });
-  }, [manualProjectCwds, sessions]);
+  const canNavigateFolderUp = useMemo(() => {
+    if (!folderBrowserCwd || !folderBrowserRoot) return false;
+    return folderBrowserCwd !== folderBrowserRoot;
+  }, [folderBrowserCwd, folderBrowserRoot]);
 
   const sessionsForSelectedProject = useMemo(
     () =>
@@ -453,6 +452,96 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    if (!isProjectsView) return;
+
+    const controller = new AbortController();
+    const query = folderBrowserCwd ? `?cwd=${encodeURIComponent(folderBrowserCwd)}` : '';
+
+    setIsFolderBrowserLoading(true);
+    setFolderBrowserError(null);
+
+    fetch(`/api/folders${query}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('failed to load folders');
+        return (await res.json()) as {
+          cwd: string;
+          root: string;
+          folders: FolderEntry[];
+          error?: string;
+        };
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setFolderBrowserCwd(data.cwd);
+        setFolderBrowserRoot(data.root);
+        setFolderEntries(Array.isArray(data.folders) ? data.folders : []);
+        setFolderBrowserError(data.error ?? null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setFolderEntries([]);
+        setFolderBrowserError('unable to load folders');
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        setIsFolderBrowserLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [folderBrowserCwd, isProjectsView]);
+
+  useEffect(() => {
+    if (!isHistoryView || !selectedProjectCwd || !activeSessionFile || isNewSessionRoute) {
+      if (externalSessionSyncTimerRef.current)
+        window.clearInterval(externalSessionSyncTimerRef.current);
+      externalSessionSyncTimerRef.current = null;
+      externalSessionSyncAbortRef.current?.abort();
+      externalSessionSyncAbortRef.current = null;
+      externalSessionSyncInFlightRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled || externalSessionSyncInFlightRef.current) return;
+
+      const isActiveStreamForCurrentSession =
+        isStreamingRef.current &&
+        activeRpcSessionRef.current?.cwd === selectedProjectCwd &&
+        activeRpcSessionRef.current?.sessionFile === activeSessionFile;
+      if (isActiveStreamForCurrentSession) return;
+
+      externalSessionSyncInFlightRef.current = true;
+      const controller = new AbortController();
+      externalSessionSyncAbortRef.current = controller;
+
+      try {
+        await syncSessionMessagesFromDisk(selectedProjectCwd, activeSessionFile, controller.signal);
+      } catch {}
+      finally {
+        if (externalSessionSyncAbortRef.current === controller) externalSessionSyncAbortRef.current = null;
+        externalSessionSyncInFlightRef.current = false;
+      }
+    };
+
+    void poll();
+    externalSessionSyncTimerRef.current = window.setInterval(() => {
+      void poll();
+    }, EXTERNAL_SESSION_SYNC_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (externalSessionSyncTimerRef.current)
+        window.clearInterval(externalSessionSyncTimerRef.current);
+      externalSessionSyncTimerRef.current = null;
+      externalSessionSyncAbortRef.current?.abort();
+      externalSessionSyncAbortRef.current = null;
+      externalSessionSyncInFlightRef.current = false;
+    };
+  }, [activeSessionFile, isHistoryView, isNewSessionRoute, selectedProjectCwd]);
+
   function parseContentIntoParts(content: any, parts: MessagePart[]) {
     if (typeof content === 'string') {
       parts.push({ type: 'text', content, done: true });
@@ -479,6 +568,57 @@ export default function App() {
         });
       }
     }
+  }
+
+  function parseLoadedMessages(messages: ParsedMessage[]): MessageEntry[] {
+    return messages.map((msg) => {
+      const parts: MessagePart[] = [];
+      if (msg.content) parseContentIntoParts(msg.content, parts);
+      const ts = msg.timestamp ? Number(msg.timestamp) : undefined;
+      return {
+        id: msg.id || crypto.randomUUID(),
+        role: msg.role || 'unknown',
+        parts,
+        model: msg.model,
+        provider: msg.provider,
+        timestamp: Number.isFinite(ts) ? ts : undefined,
+        usage: msg.usage,
+      };
+    });
+  }
+
+  function buildMessageSnapshotSignature(messages: MessageEntry[]): string {
+    if (messages.length === 0) return '0';
+
+    let totalParts = 0;
+    let totalTextLength = 0;
+    let toolCount = 0;
+
+    for (const msg of messages) {
+      totalParts += msg.parts.length;
+      for (const part of msg.parts) {
+        if (typeof part.content === 'string') totalTextLength += part.content.length;
+        if (part.type === 'tool') toolCount++;
+      }
+    }
+
+    const last = messages[messages.length - 1];
+    const lastPartsSignature = last.parts
+      .map(
+        (part) =>
+          `${part.type}:${part.done ? 1 : 0}:${part.name || ''}:${typeof part.content === 'string' ? part.content.length : 0}`,
+      )
+      .join('|');
+
+    return [
+      messages.length,
+      totalParts,
+      totalTextLength,
+      toolCount,
+      last.role,
+      last.timestamp ?? '',
+      lastPartsSignature,
+    ].join('::');
   }
 
   function getStreamingTarget(
@@ -804,22 +944,27 @@ export default function App() {
       );
       if (!res.ok) return;
       const messages = (await res.json()) as ParsedMessage[];
-      const parsed: MessageEntry[] = messages.map((msg) => {
-        const parts: MessagePart[] = [];
-        if (msg.content) parseContentIntoParts(msg.content, parts);
-        const ts = msg.timestamp ? Number(msg.timestamp) : undefined;
-        return {
-          id: msg.id || crypto.randomUUID(),
-          role: msg.role || 'unknown',
-          parts,
-          model: msg.model,
-          provider: msg.provider,
-          timestamp: Number.isFinite(ts) ? ts : undefined,
-          usage: msg.usage,
-        };
-      });
+      const parsed = parseLoadedMessages(messages);
+      lastExternalSessionSignatureRef.current = buildMessageSnapshotSignature(parsed);
       setCurrentMessages(parsed);
     } catch {}
+  }
+
+  async function syncSessionMessagesFromDisk(cwd: string, file: string, signal: AbortSignal) {
+    const res = await fetch(
+      `/api/session?cwd=${encodeURIComponent(cwd)}&filename=${encodeURIComponent(file)}`,
+      { signal },
+    );
+    if (!res.ok) return;
+
+    const messages = (await res.json()) as ParsedMessage[];
+    const parsed = parseLoadedMessages(messages);
+    const signature = buildMessageSnapshotSignature(parsed);
+    if (signature === lastExternalSessionSignatureRef.current) return;
+
+    lastExternalSessionSignatureRef.current = signature;
+    setCurrentMessages(parsed);
+    void loadSessions();
   }
 
   function resetSessionViewState() {
@@ -828,6 +973,7 @@ export default function App() {
     streamingMessageIdRef.current = null;
     setIsStreaming(false);
     setSessionStats(null);
+    lastExternalSessionSignatureRef.current = null;
     if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
   }
 
@@ -897,7 +1043,6 @@ export default function App() {
   }
 
   function newSessionInFolder(cwd: string) {
-    setManualProjectCwds((prev) => (prev.includes(cwd) ? prev : [...prev, cwd]));
     navigate(newSessionRoutePath(cwd));
   }
 
@@ -905,13 +1050,20 @@ export default function App() {
     navigate(projectRoutePath(cwd));
   }
 
-  function handleCreateProject(cwd: string) {
-    const normalisedCwd = cwd.trim();
-    if (!normalisedCwd) return;
-    setManualProjectCwds((prev) =>
-      prev.includes(normalisedCwd) ? prev : [...prev, normalisedCwd],
-    );
-    navigate(projectRoutePath(normalisedCwd));
+  function browseIntoFolder(path: string) {
+    setFolderBrowserCwd(path);
+  }
+
+  function browseToParentFolder() {
+    if (!folderBrowserCwd || !folderBrowserRoot || folderBrowserCwd === folderBrowserRoot) return;
+    const parts = folderBrowserCwd.split('/').filter(Boolean);
+    const parent = parts.length <= 1 ? '/' : `/${parts.slice(0, -1).join('/')}`;
+    setFolderBrowserCwd(parent);
+  }
+
+  function openCurrentFolder() {
+    if (!folderBrowserCwd) return;
+    handleSelectProject(folderBrowserCwd);
   }
 
   function goBackToProjects() {
@@ -995,21 +1147,21 @@ export default function App() {
     }
   }
 
-  const connectionToneClass = !isConnected
-    ? 'border-pi-error bg-pi-tool-error'
-    : isStreaming
-      ? 'border-pi-warning bg-pi-tool-pending'
-      : 'border-pi-success bg-pi-tool-success';
   const connectionA11yLabel = isStreaming ? 'streaming response' : 'session status';
 
   return (
     <div className="flex flex-col h-full bg-pi-page-bg text-gray-900 text-sm font-mono overflow-hidden">
       {isProjectsView && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
-          <ProjectPicker
-            projects={projectSummaries}
-            onSelectProject={handleSelectProject}
-            onCreateProject={handleCreateProject}
+          <FolderBrowser
+            cwd={folderBrowserCwd}
+            folders={folderEntries}
+            isLoading={isFolderBrowserLoading}
+            error={folderBrowserError}
+            canNavigateUp={canNavigateFolderUp}
+            onBrowseIntoFolder={browseIntoFolder}
+            onBrowseToParent={browseToParentFolder}
+            onOpenCurrentFolder={openCurrentFolder}
           />
         </main>
       )}
@@ -1030,12 +1182,12 @@ export default function App() {
       {isSessionsView && !selectedProjectCwd && (
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
           <div className="mx-auto max-w-3xl rounded-xl border border-pi-border-muted bg-pi-card-bg p-4">
-            <div className="text-sm text-pi-muted mb-3">no project selected</div>
+            <div className="text-sm text-pi-muted mb-3">no folder selected</div>
             <button
               onClick={goBackToProjects}
               className="px-3 py-1.5 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
             >
-              choose project
+              choose folder
             </button>
           </div>
         </main>
@@ -1046,7 +1198,7 @@ export default function App() {
           <div className="flex items-center gap-2 px-4 py-2 md:px-6 border-b border-pi-border-muted bg-pi-card-bg">
             <div className="min-w-0">
               <div className="text-[11px] text-pi-dim truncate">
-                {selectedProjectCwd ? shortenCwd(selectedProjectCwd) : 'project not selected'}
+                {selectedProjectCwd ? shortenCwd(selectedProjectCwd) : 'folder not selected'}
               </div>
               <div className="text-xs truncate text-pi-muted">
                 {activeSessionFile ? activeSessionFile.split('/').pop() : 'new session'}
@@ -1170,9 +1322,7 @@ export default function App() {
           </div>
 
           <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
-            <div
-              className={`flex gap-2 items-center rounded-lg border px-2.5 py-2 transition-colors ${connectionToneClass}`}
-            >
+            <div className="flex gap-2 items-center">
               <span className="sr-only" aria-live="polite">
                 {connectionA11yLabel}
               </span>
@@ -1268,49 +1418,40 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
   );
 }
 
-function ProjectPicker({
-  projects,
-  onSelectProject,
-  onCreateProject,
+function FolderBrowser({
+  cwd,
+  folders,
+  isLoading,
+  error,
+  canNavigateUp,
+  onBrowseIntoFolder,
+  onBrowseToParent,
+  onOpenCurrentFolder,
 }: {
-  projects: ProjectSummary[];
-  onSelectProject: (cwd: string) => void;
-  onCreateProject: (cwd: string) => void;
+  cwd: string | null;
+  folders: FolderEntry[];
+  isLoading: boolean;
+  error: string | null;
+  canNavigateUp: boolean;
+  onBrowseIntoFolder: (path: string) => void;
+  onBrowseToParent: () => void;
+  onOpenCurrentFolder: () => void;
 }) {
-  const [newProjectCwd, setNewProjectCwd] = useState('');
-
-  function submitProject() {
-    const cwd = newProjectCwd.trim();
-    if (!cwd) return;
-    onCreateProject(cwd);
-    setNewProjectCwd('');
-  }
-
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-4">
-        <p className="text-pi-muted">select an existing project or add a new working directory.</p>
-      </div>
-
-      <div className="rounded-xl border border-pi-border-muted bg-pi-card-bg p-4 mb-4">
-        <div className="text-xs text-pi-muted mb-2">new project working directory</div>
-        <div className="flex flex-row gap-2">
-          <input
-            value={newProjectCwd}
-            onChange={(e) => setNewProjectCwd(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitProject();
-              }
-            }}
-            placeholder="/absolute/path/to/project"
-            className="prompt-input flex-1 border border-pi-border-muted rounded-lg px-3 py-2 bg-white outline-none focus:border-pi-accent"
-          />
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-base md:text-lg font-semibold text-pi-accent">browse folders</h1>
+          <p className="text-pi-muted mt-1 truncate" title={cwd ?? ''}>
+            {cwd ? asHomeRelativePath(cwd) : 'loading…'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={submitProject}
-            title="add project"
-            className="inline-flex items-center justify-center h-[42px] w-[42px] shrink-0 rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer"
+            onClick={onBrowseToParent}
+            disabled={!canNavigateUp}
+            title="back"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
           >
             <svg
               width="18"
@@ -1320,40 +1461,65 @@ function ProjectPicker({
               stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <line x1="8" y1="3" x2="8" y2="13" />
-              <line x1="3" y1="8" x2="13" y2="8" />
+              <polyline points="10.5,3 5,8 10.5,13" />
+            </svg>
+          </button>
+          <button
+            onClick={onOpenCurrentFolder}
+            disabled={!cwd}
+            title="open current folder"
+            aria-label="open current folder"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg bg-pi-accent text-white hover:opacity-90 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 3h5v5" />
+              <path d="M13 3 7 9" />
+              <path d="M11 8v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" />
             </svg>
           </button>
         </div>
       </div>
 
-      <div className="space-y-2">
-        {projects.length === 0 && (
-          <div className="rounded-xl border border-dashed border-pi-border-muted bg-pi-card-bg px-4 py-6 text-center text-pi-muted">
-            no projects yet. add a working directory to continue.
-          </div>
+      <div className="rounded-xl border border-pi-border-muted bg-pi-card-bg">
+        {isLoading && (
+          <div className="px-4 py-6 text-center text-pi-muted">loading folders…</div>
         )}
 
-        {projects.map((project) => {
-          const time = project.lastSessionTimestamp
-            ? new Date(project.lastSessionTimestamp).toLocaleString()
-            : 'no sessions';
-          return (
-            <button
-              key={project.cwd}
-              onClick={() => onSelectProject(project.cwd)}
-              className="w-full text-left rounded-xl border border-pi-border-muted bg-pi-card-bg px-4 py-3 hover:bg-pi-user-bg cursor-pointer"
-            >
-              <div className="text-sm text-gray-800 truncate">{project.label}</div>
-              <div className="text-[11px] text-pi-dim mt-1 truncate">{project.cwd}</div>
-              <div className="text-[11px] text-pi-muted mt-1">
-                {project.sessionCount} sessions · {time}
-              </div>
-            </button>
-          );
-        })}
+        {!isLoading && error && (
+          <div className="px-4 py-6 text-center text-pi-error">{error}</div>
+        )}
+
+        {!isLoading && !error && folders.length === 0 && (
+          <div className="px-4 py-6 text-center text-pi-muted">no visible folders here.</div>
+        )}
+
+        {!isLoading && !error && folders.length > 0 && (
+          <div className="divide-y divide-pi-border-muted">
+            {folders.map((folder) => (
+              <button
+                key={folder.path}
+                onClick={() => onBrowseIntoFolder(folder.path)}
+                className="w-full text-left px-4 py-3 hover:bg-pi-user-bg cursor-pointer"
+                title={folder.path}
+              >
+                <div className="text-sm text-gray-800 truncate">{folder.name}</div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
     </div>
   );
 }
@@ -1403,7 +1569,7 @@ function SessionPicker({
           </button>
           <button
             onClick={onBack}
-            title="back to projects"
+            title="back to folders"
             className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
           >
             <svg
@@ -1424,7 +1590,7 @@ function SessionPicker({
 
       {sessions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-pi-border-muted bg-pi-card-bg px-4 py-6 text-center text-pi-muted">
-          no sessions in this project yet.
+          no sessions in this folder yet.
         </div>
       ) : (
         <div className="space-y-2">
