@@ -1,10 +1,10 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
+import { readdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { homedir } from 'node:os';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 
-const SESSION_DIR = join(homedir(), ".pi", "agent", "sessions");
+const SESSION_DIR = join(homedir(), '.pi', 'agent', 'sessions');
 
 export interface SessionSummary {
   id: string;
@@ -32,10 +32,16 @@ export interface ParsedMessage {
 }
 
 function cwdToSessionDir(cwd: string): string {
-  return "-" + cwd.replace(/\//g, "-") + "-";
+  return '-' + cwd.replace(/\//g, '-') + '-';
 }
 
-export async function listSessions(opts: { cwd?: string; limit?: number }): Promise<SessionSummary[]> {
+export function getSessionFilePath(cwd: string, filename: string): string {
+  return join(SESSION_DIR, cwdToSessionDir(cwd), filename);
+}
+export async function listSessions(opts: {
+  cwd?: string;
+  limit?: number;
+}): Promise<SessionSummary[]> {
   const { cwd, limit = 30 } = opts;
   const results: SessionSummary[] = [];
 
@@ -49,7 +55,7 @@ export async function listSessions(opts: { cwd?: string; limit?: number }): Prom
       const dirPath = join(SESSION_DIR, dir.name);
       let files: string[];
       try {
-        files = (await readdir(dirPath)).filter((f) => f.endsWith(".jsonl"));
+        files = (await readdir(dirPath)).filter((f) => f.endsWith('.jsonl'));
       } catch {
         continue;
       }
@@ -73,7 +79,7 @@ export async function listSessions(opts: { cwd?: string; limit?: number }): Prom
 }
 
 export async function readSessionMessages(filePath: string): Promise<ParsedMessage[]> {
-  const stream = createReadStream(filePath, { encoding: "utf8" });
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const messages: ParsedMessage[] = [];
   const toolResults = new Map<string, string>();
@@ -84,19 +90,19 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
       if (!trimmed || !trimmed.startsWith('{"type":"message"')) continue;
       try {
         const entry = JSON.parse(trimmed);
-        if (entry.type !== "message" || !entry.message) continue;
+        if (entry.type !== 'message' || !entry.message) continue;
         const msg = entry.message;
         const role = msg.role;
-        if (!role || role === "system") continue;
+        if (!role || role === 'system') continue;
 
-        if (role === "toolResult" || role === "tool_result") {
+        if (role === 'toolResult' || role === 'tool_result') {
           const id = msg.toolCallId;
-          const text = msg.content?.[0]?.text ?? "";
+          const text = msg.content?.[0]?.text ?? '';
           if (id) toolResults.set(id, text);
           continue;
         }
 
-        if (role === "tool") continue;
+        if (role === 'tool') continue;
 
         messages.push({
           id: entry.id || crypto.randomUUID(),
@@ -117,7 +123,7 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
   for (const msg of messages) {
     if (!Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
-      if (block.type === "toolCall" && block.id && toolResults.has(block.id)) {
+      if (block.type === 'toolCall' && block.id && toolResults.has(block.id)) {
         block.result = toolResults.get(block.id);
       }
     }
@@ -127,7 +133,7 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
 }
 
 async function readSessionHeader(filePath: string): Promise<SessionSummary | null> {
-  const stream = createReadStream(filePath, { encoding: "utf8" });
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
   let header: any = null;
@@ -142,7 +148,10 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
       if (!header) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed.type === "session") { header = parsed; continue; }
+          if (parsed.type === 'session') {
+            header = parsed;
+            continue;
+          }
         } catch {}
       }
 
@@ -151,12 +160,12 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
         if (!firstPrompt && trimmed.includes('"role":"user"')) {
           try {
             const msg = JSON.parse(trimmed);
-            if (msg.message?.role === "user") {
+            if (msg.message?.role === 'user') {
               const content = msg.message.content;
-              if (typeof content === "string") {
+              if (typeof content === 'string') {
                 firstPrompt = content.slice(0, 120);
               } else if (Array.isArray(content)) {
-                const text = content.find((c: any) => c.type === "text");
+                const text = content.find((c: any) => c.type === 'text');
                 if (text?.text) firstPrompt = text.text.slice(0, 120);
               }
             }
@@ -173,9 +182,9 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
 
   return {
     id: header.id,
-    file: filePath,
-    cwd: header.cwd || "",
-    timestamp: header.timestamp || "",
+    file: basename(filePath),
+    cwd: header.cwd || '',
+    timestamp: header.timestamp || '',
     firstPrompt,
     messageCount,
   };
