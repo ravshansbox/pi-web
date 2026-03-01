@@ -17,6 +17,8 @@ type MessagePart = {
   args?: unknown;
   done?: boolean;
   id?: string;
+  details?: unknown;
+  isError?: boolean;
 };
 
 type Usage = {
@@ -114,6 +116,323 @@ function newSessionRoutePath(cwd: string): string {
 function normaliseThinkingLevel(value: unknown): ThinkingLevel | null {
   if (typeof value !== 'string') return null;
   return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : null;
+}
+
+const ANSI_ESCAPE_PATTERN =
+  /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function toolString(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  return null;
+}
+
+function replaceTabs(value: string): string {
+  return value.replace(/\t/g, '   ');
+}
+
+function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0B';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function sanitizeBinaryOutput(value: string): string {
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.codePointAt(0);
+      if (code === undefined) return false;
+      if (code === 0x09 || code === 0x0a || code === 0x0d) return true;
+      if (code <= 0x1f) return false;
+      if (code >= 0xfff9 && code <= 0xfffb) return false;
+      return true;
+    })
+    .join('');
+}
+
+function normaliseToolOutputText(value: string): string {
+  return replaceTabs(sanitizeBinaryOutput(value.replace(ANSI_ESCAPE_PATTERN, '')).replace(/\r/g, ''));
+}
+
+function extractToolText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const textBlocks = value
+      .map((item) => {
+        const itemRecord = asRecord(item);
+        if (itemRecord?.type === 'text') return toolString(itemRecord.text) ?? '';
+        return '';
+      })
+      .filter(Boolean);
+
+    if (textBlocks.length > 0) return textBlocks.join('\n');
+
+    const joined = value
+      .map((item) => extractToolText(item))
+      .filter((item) => item.length > 0)
+      .join('\n');
+    if (joined) return joined;
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return '';
+    }
+  }
+
+  const record = asRecord(value);
+  if (record) {
+    if (typeof record.text === 'string') return record.text;
+    if (typeof record.output === 'string') return record.output;
+    if (record.content != null) {
+      const contentText = extractToolText(record.content);
+      if (contentText) return contentText;
+    }
+    if (record.result != null) {
+      const resultText = extractToolText(record.result);
+      if (resultText) return resultText;
+    }
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+}
+
+function getToolResultEnvelope(value: unknown): { text: string; details?: unknown } {
+  const record = asRecord(value);
+  if (!record) return { text: extractToolText(value) };
+
+  const contentText = record.content != null ? extractToolText(record.content) : '';
+  if (contentText || record.details !== undefined) {
+    return { text: contentText, details: record.details };
+  }
+
+  const result = record.result;
+  if (result !== undefined) {
+    const nested = getToolResultEnvelope(result);
+    return { text: nested.text, details: nested.details ?? record.details };
+  }
+
+  const directText = extractToolText(value);
+  return { text: directText, details: record.details };
+}
+
+function formatPreviewLines(lines: string[], expanded: boolean, maxLines: number): string {
+  if (lines.length === 0) return '';
+  const displayLines = expanded ? lines : lines.slice(0, maxLines);
+  let text = displayLines.join('\n');
+  if (!expanded && lines.length > maxLines) {
+    text += `\n... (${lines.length - maxLines} more lines, to expand)`;
+  }
+  return text;
+}
+
+function formatTailPreviewLines(lines: string[], expanded: boolean, maxLines: number): string {
+  if (lines.length === 0) return '';
+  const displayLines = expanded ? lines : lines.slice(Math.max(0, lines.length - maxLines));
+  let text = displayLines.join('\n');
+  if (!expanded && lines.length > maxLines) {
+    text = `... (${lines.length - maxLines} earlier lines, to expand)\n${text}`;
+  }
+  return text;
+}
+
+function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): string {
+  const name = part.name || 'tool';
+  const args = asRecord(part.args);
+  const output = normaliseToolOutputText(extractToolText(part.content));
+  const details = asRecord(part.details);
+  const invalidArg = '[invalid arg]';
+
+  if (name === 'bash') {
+    const command = toolString(args?.command);
+    const timeout = typeof args?.timeout === 'number' ? args.timeout : undefined;
+    const commandDisplay = command === null ? invalidArg : command || '...';
+    let text = `$ ${commandDisplay}${timeout ? ` (timeout ${timeout}s)` : ''}`;
+
+    const outputLines = output.trim() ? output.trim().split('\n') : [];
+    if (outputLines.length > 0) {
+      text += `\n\n${formatTailPreviewLines(outputLines, expanded, 5)}`;
+    }
+
+    const truncation = asRecord(details?.truncation);
+    const fullOutputPath = toolString(details?.fullOutputPath);
+    if (truncation?.truncated || fullOutputPath) {
+      const warnings: string[] = [];
+      if (fullOutputPath) warnings.push(`Full output: ${fullOutputPath}`);
+      if (truncation?.truncated) {
+        const outputLines = Number(truncation.outputLines) || 0;
+        const totalLines = Number(truncation.totalLines) || 0;
+        if (truncation.truncatedBy === 'lines') {
+          warnings.push(`Truncated: showing ${outputLines} of ${totalLines} lines`);
+        } else {
+          warnings.push(
+            `Truncated: ${outputLines} lines shown (${formatSize(Number(truncation.maxBytes) || 0)} limit)`,
+          );
+        }
+      }
+      text += `\n\n[${warnings.join('. ')}]`;
+    }
+
+    return text;
+  }
+
+  if (name === 'read') {
+    const rawPath = toolString(args?.file_path ?? args?.path);
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
+    const offset = typeof args?.offset === 'number' ? args.offset : undefined;
+    const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+    const range =
+      offset !== undefined || limit !== undefined
+        ? `:${offset ?? 1}${limit !== undefined ? `-${(offset ?? 1) + limit - 1}` : ''}`
+        : '';
+
+    let text = `read ${path}${range}`;
+    if (extractToolText(part.content)) {
+      text += '\n\n[content hidden]';
+    }
+
+    const truncation = asRecord(details?.truncation);
+    if (truncation?.truncated) {
+      const outputLines = Number(truncation.outputLines) || 0;
+      const totalLines = Number(truncation.totalLines) || 0;
+      const maxLines = Number(truncation.maxLines);
+      if (truncation.firstLineExceedsLimit) {
+        text += `\n[First line exceeds ${formatSize(Number(truncation.maxBytes) || 0)} limit]`;
+      } else if (truncation.truncatedBy === 'lines') {
+        text += `\n[Truncated: showing ${outputLines} of ${totalLines} lines (${Number.isFinite(maxLines) ? maxLines : '?'} line limit)]`;
+      } else {
+        text += `\n[Truncated: ${outputLines} lines shown (${formatSize(Number(truncation.maxBytes) || 0)} limit)]`;
+      }
+    }
+
+    return text;
+  }
+
+  if (name === 'ls' || name === 'find' || name === 'grep') {
+    const path = toolString(args?.path);
+    const basePath = path === null ? invalidArg : asHomeRelativePath(path || '.');
+    let text = name;
+
+    if (name === 'find') {
+      const pattern = toolString(args?.pattern);
+      text = `find ${pattern === null ? invalidArg : pattern || ''} in ${basePath}`;
+    } else if (name === 'grep') {
+      const pattern = toolString(args?.pattern);
+      text = `grep /${pattern === null ? invalidArg : pattern || ''}/ in ${basePath}`;
+      const glob = toolString(args?.glob);
+      if (glob) text += ` (${glob})`;
+    } else {
+      text = `ls ${basePath}`;
+    }
+
+    const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+    if (limit !== undefined) {
+      text += name === 'grep' ? ` limit ${limit}` : ` (limit ${limit})`;
+    }
+
+    const previewLimit = name === 'grep' ? 15 : 20;
+    if (output.trim()) {
+      text += `\n\n${formatPreviewLines(output.trim().split('\n'), expanded, previewLimit)}`;
+    }
+
+    const truncation = asRecord(details?.truncation);
+    const warnings: string[] = [];
+
+    if (name === 'ls') {
+      const entryLimit =
+        typeof details?.entryLimitReached === 'number' ? details.entryLimitReached : undefined;
+      if (entryLimit) warnings.push(`${entryLimit} entries limit`);
+    } else if (name === 'find') {
+      const resultLimit =
+        typeof details?.resultLimitReached === 'number' ? details.resultLimitReached : undefined;
+      if (resultLimit) warnings.push(`${resultLimit} results limit`);
+    } else if (name === 'grep') {
+      const matchLimit =
+        typeof details?.matchLimitReached === 'number' ? details.matchLimitReached : undefined;
+      if (matchLimit) warnings.push(`${matchLimit} matches limit`);
+      if (Boolean(details?.linesTruncated)) warnings.push('some lines truncated');
+    }
+
+    if (truncation?.truncated) {
+      warnings.push(`${formatSize(Number(truncation.maxBytes) || 0)} limit`);
+    }
+
+    if (warnings.length > 0) {
+      text += `\n[Truncated: ${warnings.join(', ')}]`;
+    }
+
+    return text;
+  }
+
+  if (name === 'write') {
+    const rawPath = toolString(args?.file_path ?? args?.path);
+    const content = toolString(args?.content);
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
+    let text = `write ${path}`;
+
+    if (content === null) {
+      text += `\n\n[invalid content arg - expected string]`;
+    } else if (content) {
+      text += `\n\n${formatPreviewLines(replaceTabs(content).split('\n'), expanded, 10)}`;
+    }
+
+    if (part.isError && output) {
+      text += `\n\n${output}`;
+    }
+
+    return text;
+  }
+
+  if (name === 'edit') {
+    const rawPath = toolString(args?.file_path ?? args?.path);
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
+    const firstChangedLine = details?.firstChangedLine;
+    const lineSuffix = typeof firstChangedLine === 'number' ? `:${firstChangedLine}` : '';
+    let text = `edit ${path}${lineSuffix}`;
+
+    const diff = typeof details?.diff === 'string' ? details.diff : '';
+    if (part.isError) {
+      if (output) text += `\n\n${output}`;
+      return text;
+    }
+
+    if (diff) {
+      text += `\n\n${normaliseToolOutputText(diff)}`;
+      return text;
+    }
+
+    if (output) text += `\n\n${output}`;
+    return text;
+  }
+
+  let text = name;
+  if (args) {
+    try {
+      text += `\n\n${JSON.stringify(args, null, 2)}`;
+    } catch {
+      text += '\n\n[unable to serialise args]';
+    }
+  }
+  if (output) text += `\n\n${output}`;
+  return text;
 }
 
 export default function App() {
@@ -558,13 +877,18 @@ export default function App() {
         block.type === 'tool_call' ||
         block.type === 'tool_use'
       ) {
+        const hasResultPayload = block.result !== undefined || block.output !== undefined;
+        const envelope = getToolResultEnvelope(block.result ?? block.output ?? '');
+        const resultRecord = asRecord(block.result);
         parts.push({
           type: 'tool',
           name: block.name || block.toolName || 'tool',
           args: block.args || block.arguments || block.input,
-          content: block.result ?? block.output ?? '',
-          done: true,
+          content: envelope.text,
+          details: envelope.details,
+          done: hasResultPayload,
           id: block.id,
+          isError: Boolean(block.isError ?? resultRecord?.isError),
         });
       }
     }
@@ -625,11 +949,18 @@ export default function App() {
     prev: MessageEntry[],
   ): { target: MessageEntry; index: number } | null {
     if (prev.length === 0) return null;
-    const index = streamingMessageIdRef.current
-      ? prev.findIndex((m) => m.id === streamingMessageIdRef.current)
-      : prev.length - 1;
-    if (index < 0) return null;
-    return { target: prev[index], index };
+
+    if (streamingMessageIdRef.current) {
+      const index = prev.findIndex((m) => m.id === streamingMessageIdRef.current);
+      if (index < 0) return null;
+      return { target: prev[index], index };
+    }
+
+    for (let i = prev.length - 1; i >= 0; i--) {
+      if (prev[i].role === 'assistant') return { target: prev[i], index: i };
+    }
+
+    return null;
   }
 
   function handleRpcEvent(event: any) {
@@ -785,6 +1116,7 @@ export default function App() {
         if (!msg) break;
         const id = msg.id || crypto.randomUUID();
         const role = msg.role || 'assistant';
+        if (role === 'toolResult' || role === 'tool_result' || role === 'tool') break;
         const parts: MessagePart[] = [];
         if (msg.content) parseContentIntoParts(msg.content, parts);
         const entry: MessageEntry = {
@@ -830,13 +1162,12 @@ export default function App() {
 
       case 'message_end': {
         const m = event.message;
+        if (m?.role && m.role !== 'assistant') break;
         const endTs = typeof m?.timestamp === 'number' ? m.timestamp : undefined;
         const streamId = streamingMessageIdRef.current;
         setCurrentMessages((prev) =>
           prev.map((msg) => {
-            if (msg.id !== streamId) {
-              return endTs != null && msg.timestamp == null ? { ...msg, timestamp: endTs } : msg;
-            }
+            if (msg.id !== streamId) return msg;
             const ts = endTs ?? msg.timestamp;
             if (m?.content) {
               const parts: MessagePart[] = [];
@@ -862,31 +1193,70 @@ export default function App() {
       }
 
       case 'tool_execution_start': {
-        const tool: MessagePart = {
-          type: 'tool',
-          name: event.toolName || event.name || 'tool',
-          args: event.args,
-          content: '',
-          done: false,
-          id: event.toolCallId || event.id,
-        };
+        const toolCallId = event.toolCallId || event.id;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
+          const parts = [...hit.target.parts];
+          const existingIndex = parts.findIndex(
+            (part) => part.type === 'tool' && part.id && toolCallId && part.id === toolCallId,
+          );
+
+          if (existingIndex >= 0) {
+            const existing = parts[existingIndex];
+            parts[existingIndex] = {
+              ...existing,
+              type: 'tool',
+              name: event.toolName || event.name || existing.name || 'tool',
+              args: event.args ?? existing.args,
+              content: existing.content ?? '',
+              done: false,
+              id: toolCallId,
+              details: existing.details,
+              isError: false,
+            };
+          } else {
+            parts.push({
+              type: 'tool',
+              name: event.toolName || event.name || 'tool',
+              args: event.args,
+              content: '',
+              done: false,
+              id: toolCallId,
+              isError: false,
+            });
+          }
+
           const next = [...prev];
-          next[hit.index] = { ...hit.target, parts: [...hit.target.parts, tool] };
+          next[hit.index] = { ...hit.target, parts };
           return next;
         });
         break;
       }
 
       case 'tool_execution_update': {
+        const toolCallId = event.toolCallId || event.id;
+        const hasPartialResult = event.partialResult !== undefined;
+        const partialEnvelope = hasPartialResult
+          ? getToolResultEnvelope(event.partialResult)
+          : getToolResultEnvelope(event.output);
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
-          const tool = [...parts].reverse().find((p) => p.type === 'tool' && !p.done);
-          if (tool && event.output) tool.content = `${tool.content || ''}${event.output}`;
+          const rev = [...parts].reverse();
+          const tool =
+            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done);
+          if (tool) {
+            if (event.args !== undefined) tool.args = event.args;
+            if (hasPartialResult) {
+              tool.content = partialEnvelope.text;
+            } else if (partialEnvelope.text) {
+              tool.content = `${extractToolText(tool.content)}${partialEnvelope.text}`;
+            }
+            if (partialEnvelope.details !== undefined) tool.details = partialEnvelope.details;
+          }
           const next = [...prev];
           next[hit.index] = { ...hit.target, parts };
           return next;
@@ -895,20 +1265,23 @@ export default function App() {
       }
 
       case 'tool_execution_end': {
-        const resultText = event.result?.content?.[0]?.text ?? event.output ?? '';
+        const toolCallId = event.toolCallId || event.id;
+        const finalEnvelope = getToolResultEnvelope(event.result ?? event.output ?? '');
+        const shouldReplaceContent = event.result !== undefined || event.output !== undefined;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
-          const tool = [...parts]
-            .reverse()
-            .find(
-              (p) =>
-                p.type === 'tool' && !p.done && (p.id === (event.toolCallId || event.id) || true),
-            );
+          const rev = [...parts].reverse();
+          const tool =
+            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done);
           if (tool) {
+            if (event.args !== undefined) tool.args = event.args;
             tool.done = true;
-            tool.content = resultText;
+            tool.isError = Boolean(event.isError);
+            if (shouldReplaceContent) tool.content = finalEnvelope.text;
+            if (finalEnvelope.details !== undefined) tool.details = finalEnvelope.details;
           }
           const next = [...prev];
           next[hit.index] = { ...hit.target, parts };
@@ -1233,8 +1606,11 @@ export default function App() {
               currentMessages
                 .filter(
                   (msg) =>
-                    msg.role === 'user' ||
-                    msg.parts.some((p) => (p.content ?? '').trim() || p.type === 'tool'),
+                    (msg.role === 'user' || msg.role === 'assistant') &&
+                    (msg.role === 'user' ||
+                      msg.parts.some(
+                        (p) => p.type === 'tool' || (p.type === 'text' && (p.content ?? '').trim()),
+                      )),
                 )
                 .map((msg) => <MessageBubble key={msg.id} msg={msg} />)
             )}
@@ -1643,11 +2019,7 @@ function Part({ part }: { part: MessagePart }) {
     return <div dangerouslySetInnerHTML={{ __html: formatText(part.content || '') }} />;
   }
   if (part.type === 'thinking') {
-    return (
-      <div className="text-pi-muted italic border-l-2 border-pi-border-muted pl-3 my-1.5 text-xs">
-        {part.content}
-      </div>
-    );
+    return null;
   }
   if (part.type === 'tool') {
     return <ToolPart part={part} />;
@@ -1656,62 +2028,24 @@ function Part({ part }: { part: MessagePart }) {
 }
 
 function ToolPart({ part }: { part: MessagePart }) {
-  const [open, setOpen] = useState(false);
-  const args = part.args
-    ? typeof part.args === 'string'
-      ? part.args
-      : JSON.stringify(part.args, null, 2)
-    : '';
-  const output = part.content || '';
-  const hasDetails = args || output;
+  const [expanded, setExpanded] = useState(false);
+  const body = useMemo(() => formatToolExecutionForDisplay(part, expanded), [expanded, part]);
 
   return (
-    <div className="bg-pi-tool-success border border-pi-border-muted rounded-lg my-1.5 text-xs overflow-hidden">
+    <div
+      className={`my-1.5 text-xs overflow-hidden ${
+        part.done ? (part.isError ? 'bg-pi-tool-error' : 'bg-pi-tool-success') : 'bg-pi-tool-pending'
+      }`}
+    >
       <button
-        onClick={() => hasDetails && setOpen((v) => !v)}
-        className={`w-full flex items-center gap-2 px-3 py-2 text-left ${hasDetails ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+        onClick={() => setExpanded((value) => !value)}
+        title={expanded ? 'collapse tool output' : 'expand tool output'}
+        className="w-full px-2.5 py-2 text-left cursor-pointer"
       >
-        <span className="text-pi-success font-semibold">{part.name}</span>
-        {!open && args && (
-          <span className="text-pi-muted truncate flex-1">
-            {args.slice(0, 80)}
-            {args.length > 80 ? '…' : ''}
-          </span>
-        )}
-        {hasDetails && (
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`ml-auto text-pi-dim flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
-          >
-            <polyline points="1,3 5,7 9,3" />
-          </svg>
-        )}
+        <pre className={`tool-io-pre max-h-64 overflow-auto ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}>
+          {body}
+        </pre>
       </button>
-      {open && (
-        <div className="border-t border-pi-border-muted">
-          {args && (
-            <div className="px-3 py-2 border-b border-pi-border-muted/40">
-              <div className="text-[10px] font-semibold text-pi-muted mb-1">input</div>
-              <pre className="whitespace-pre-wrap break-all text-pi-muted font-mono">{args}</pre>
-            </div>
-          )}
-          {output && (
-            <div className="px-3 py-2">
-              <div className="text-[10px] font-semibold text-pi-muted mb-1">output</div>
-              <pre className="whitespace-pre-wrap break-all text-pi-tool-output max-h-48 overflow-y-auto font-mono">
-                {output}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -106,7 +106,14 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const messages: ParsedMessage[] = [];
-  const toolResults = new Map<string, string>();
+  const toolResults = new Map<
+    string,
+    {
+      content: unknown;
+      details?: unknown;
+      isError?: boolean;
+    }
+  >();
 
   try {
     for await (const line of rl) {
@@ -121,8 +128,13 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
 
         if (role === 'toolResult' || role === 'tool_result') {
           const id = msg.toolCallId;
-          const text = msg.content?.[0]?.text ?? '';
-          if (id) toolResults.set(id, text);
+          if (id) {
+            toolResults.set(id, {
+              content: msg.content,
+              details: msg.details,
+              isError: Boolean(msg.isError),
+            });
+          }
           continue;
         }
 
@@ -148,7 +160,14 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
     if (!Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
       if (block.type === 'toolCall' && block.id && toolResults.has(block.id)) {
-        block.result = toolResults.get(block.id);
+        const result = toolResults.get(block.id);
+        if (!result) continue;
+        block.result = {
+          content: result.content,
+          details: result.details,
+          isError: result.isError,
+        };
+        block.isError = result.isError;
       }
     }
   }

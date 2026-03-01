@@ -68,3 +68,11 @@ body,
 .select-fit-content {
   field-sizing: content;
 }
+
+.tool-io-pre {
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 4;
+  line-height: 1.3;
+}
