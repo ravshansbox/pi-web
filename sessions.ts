@@ -32,7 +32,7 @@ export interface ParsedMessage {
 }
 
 function cwdToSessionDir(cwd: string): string {
-  return '-' + cwd.replace(/\//g, '-') + '-';
+  return '-' + cwd.replace(/\//g, '-') + '--';
 }
 
 export function getSessionFilePath(cwd: string, filename: string): string {
