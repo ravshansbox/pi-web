@@ -1,6 +1,6 @@
 {
   "name": "pi-web",
-  "version": "0.3.8",
+  "version": "0.0.0",
   "type": "module",
   "engines": {
     "node": "^24"
