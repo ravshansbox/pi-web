@@ -42,7 +42,7 @@ body,
   --color-pi-dim: #767676;
   --color-pi-text: #1f2933;
   --color-pi-user-bg: #f6f6f6;
-  --color-pi-tool-pending: #e8e8f0;
+  --color-pi-tool-pending: #f3f7ff;
   --color-pi-tool-success: #e8f0e8;
   --color-pi-tool-error: #f0e8e8;
   --color-pi-md-heading: #9a7326;
@@ -76,7 +76,7 @@ body,
     --color-pi-dim: #7d8892;
     --color-pi-text: #e5edf3;
     --color-pi-user-bg: #1b2430;
-    --color-pi-tool-pending: #212a36;
+    --color-pi-tool-pending: #3a5f8c;
     --color-pi-tool-success: #1f2c23;
     --color-pi-tool-error: #322326;
     --color-pi-md-heading: #d1a454;

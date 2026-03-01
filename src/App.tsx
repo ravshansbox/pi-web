@@ -2077,10 +2077,10 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
   const hasToolPart = msg.parts.some((part) => part.type === 'tool');
   const isToolOnlyMessage = !isUser && !isSteering && hasToolPart && !hasVisibleTextPart;
   const bubbleToneClass = isUser
-    ? 'bg-pi-tool-success border border-pi-border-muted'
+    ? 'bg-pi-card-bg border border-pi-border-muted'
     : isToolOnlyMessage
-      ? 'bg-pi-user-bg border border-pi-border-muted'
-      : 'bg-pi-card-bg border border-pi-border-muted';
+      ? 'bg-pi-tool-success border border-pi-border-muted'
+      : 'bg-pi-tool-pending border border-pi-border-muted';
 
   return (
     <div className="mb-2 min-w-0">
@@ -2352,7 +2352,7 @@ function ToolPart({ part }: { part: MessagePart }) {
   const preOverflowClass = part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
 
   return (
-    <div className="my-0 px-1.5 py-1 text-xs overflow-hidden bg-pi-user-bg">
+    <div className="my-0 px-1.5 py-1 text-xs overflow-hidden bg-pi-tool-success">
       <pre
         className={`tool-io-pre ${preMaxHeightClass} ${preOverflowClass} ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}
       >
@@ -2379,7 +2379,7 @@ function formatText(raw: string): string {
         i++;
       }
       out.push(
-        `<pre class="bg-pi-page-bg border border-pi-border-muted rounded-lg p-3 overflow-x-auto my-2 text-xs font-mono text-pi-md-code-block"><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${code.join('\n')}</code></pre>`,
+        `<pre class="bg-pi-tool-success border border-pi-border-muted rounded-lg p-3 overflow-x-auto my-2 text-xs font-mono text-pi-md-code-block"><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${code.join('\n')}</code></pre>`,
       );
       i++;
       continue;
@@ -2469,7 +2469,7 @@ function inlineFormat(text: string): string {
   let out = escapeHtml(text);
   out = out.replace(
     /`([^`]+)`/g,
-    `<code class="bg-pi-page-bg text-pi-md-code px-1 py-0.5 rounded text-xs font-mono">$1</code>`,
+    `<code class="bg-pi-tool-success text-pi-md-code px-1 py-0.5 rounded text-xs font-mono">$1</code>`,
   );
   out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
