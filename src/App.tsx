@@ -1806,25 +1806,16 @@ export default function App() {
 
 function MessageBubble({ msg }: { msg: MessageEntry }) {
   const isUser = msg.role === 'user';
+  const hasVisibleTextPart = msg.parts.some(
+    (part) => part.type === 'text' && Boolean((part.content ?? '').trim()),
+  );
+  const hasToolPart = msg.parts.some((part) => part.type === 'tool');
+  const isToolOnlyMessage = !isUser && hasToolPart && !hasVisibleTextPart;
+
   return (
     <div className="mb-2 min-w-0">
-      <div className="flex items-center gap-2 mb-1 min-w-0">
-        <span className="text-[11px] font-semibold tracking-wide text-pi-muted shrink-0">
-          {isUser ? 'you' : 'assistant'}
-        </span>
-        {!isUser && (msg.model || msg.provider) && (
-          <span className="text-[10px] text-pi-dim truncate">
-            {[msg.provider, msg.model].filter(Boolean).join(' / ')}
-          </span>
-        )}
-        {msg.timestamp != null && (
-          <span className="text-[10px] text-pi-dim ml-auto shrink-0">
-            {formatTime(msg.timestamp)}
-          </span>
-        )}
-      </div>
       <div
-        className={`rounded-lg px-4 py-3 min-w-0 overflow-hidden ${isUser ? 'bg-pi-user-bg' : 'bg-pi-card-bg border border-pi-border-muted'}`}
+        className={`rounded-lg ${isToolOnlyMessage ? 'p-0' : 'px-2 py-1.5'} min-w-0 overflow-hidden ${isUser ? 'bg-pi-user-bg' : 'bg-pi-card-bg border border-pi-border-muted'}`}
       >
         <div className="text-xs md:text-sm leading-relaxed break-words min-w-0">
           {msg.parts.map((part, index) => (
@@ -2090,7 +2081,7 @@ function ToolPart({ part }: { part: MessagePart }) {
 
   return (
     <div
-      className={`my-1.5 px-2.5 py-2 text-xs overflow-hidden ${
+      className={`my-0 px-1.5 py-1 text-xs overflow-hidden ${
         part.done ? (part.isError ? 'bg-pi-tool-error' : 'bg-pi-tool-success') : 'bg-pi-tool-pending'
       }`}
     >
