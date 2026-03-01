@@ -132,6 +132,15 @@ function getInitialFolderBrowserCwdFromUrl(): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function isIPhoneDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPhone|iPod/i.test(navigator.userAgent);
+}
+
+function shouldAutoFocusInput(): boolean {
+  return !isIPhoneDevice();
+}
+
 const ANSI_ESCAPE_PATTERN =
   /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
 
@@ -579,7 +588,7 @@ export default function App() {
   }, [inputValue]);
 
   useEffect(() => {
-    if (!isHistoryView || !hasActiveSession) return;
+    if (!isHistoryView || !hasActiveSession || !shouldAutoFocusInput()) return;
     requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input || input.disabled) return;
@@ -1398,7 +1407,7 @@ export default function App() {
       activeRpcSessionRef.current?.sessionFile === file &&
       activeRpcSessionRef.current?.cwd === cwd
     ) {
-      inputRef.current?.focus();
+      if (shouldAutoFocusInput()) inputRef.current?.focus();
       return;
     }
 
@@ -1409,7 +1418,7 @@ export default function App() {
       scheduleRequestModels(120);
       requestStats();
     }
-    inputRef.current?.focus();
+    if (shouldAutoFocusInput()) inputRef.current?.focus();
   }
 
   function activateNewSession(cwd: string) {
@@ -1418,7 +1427,7 @@ export default function App() {
       activeRpcSessionRef.current?.sessionFile === null &&
       activeRpcSessionRef.current?.cwd === cwd
     ) {
-      inputRef.current?.focus();
+      if (shouldAutoFocusInput()) inputRef.current?.focus();
       return;
     }
 
@@ -1427,7 +1436,7 @@ export default function App() {
       scheduleRequestModels(120);
       requestStats();
     }
-    inputRef.current?.focus();
+    if (shouldAutoFocusInput()) inputRef.current?.focus();
   }
 
   useEffect(() => {
@@ -1497,6 +1506,7 @@ export default function App() {
     const text = inputValue.trim();
     if (!text || !isConnected || !hasActiveSession) return;
     setInputValue('');
+    if (isIPhoneDevice()) inputRef.current?.blur();
     if (isStreaming) {
       setPromptQueue((q) => [...q, text]);
       return;
