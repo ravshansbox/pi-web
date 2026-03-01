@@ -148,8 +148,12 @@ const server = createServer((req, res) => {
     const cwd = url.searchParams.get('cwd') || undefined;
     listSessions({ cwd, limit: 50, agent: AGENT })
       .then((data) => {
+        const sessionsWithRuntime = data.map((session) => ({
+          ...session,
+          ...getSessionRuntimeStatus(session.cwd, session.file),
+        }));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(data));
+        res.end(JSON.stringify(sessionsWithRuntime));
       })
       .catch((err) => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -255,6 +259,19 @@ const socketBindings = new Map<WebSocket, ManagedRpcSession>();
 
 function buildSessionKey(cwd: string, sessionFile: string | null): string {
   return `${cwd}::${sessionFile ? basename(sessionFile) : '__new__'}`;
+}
+
+function getSessionRuntimeStatus(cwd: string, sessionFile: string): {
+  isActive: boolean;
+  isWorking: boolean;
+} {
+  const key = buildSessionKey(resolve(cwd), basename(sessionFile));
+  const managed = rpcSessions.get(key);
+  if (!managed || managed.isClosing) return { isActive: false, isWorking: false };
+  return {
+    isActive: managed.isAgentRunning || managed.clients.size > 0,
+    isWorking: managed.isAgentRunning,
+  };
 }
 
 function sendToSocket(ws: WebSocket, payload: any) {

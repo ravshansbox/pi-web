@@ -8,6 +8,8 @@ type SessionSummary = {
   timestamp: string;
   firstPrompt?: string;
   messageCount: number;
+  isActive?: boolean;
+  isWorking?: boolean;
 };
 
 type MessagePart = {
@@ -234,27 +236,27 @@ function getToolResultEnvelope(value: unknown): { text: string; details?: unknow
   return { text: directText, details: record.details };
 }
 
-function formatPreviewLines(lines: string[], expanded: boolean, maxLines: number): string {
+function formatPreviewLines(lines: string[], maxLines: number): string {
   if (lines.length === 0) return '';
-  const displayLines = expanded ? lines : lines.slice(0, maxLines);
+  const displayLines = lines.slice(0, maxLines);
   let text = displayLines.join('\n');
-  if (!expanded && lines.length > maxLines) {
-    text += `\n... (${lines.length - maxLines} more lines, to expand)`;
+  if (lines.length > maxLines) {
+    text += `\n... (${lines.length - maxLines} more lines)`;
   }
   return text;
 }
 
-function formatTailPreviewLines(lines: string[], expanded: boolean, maxLines: number): string {
+function formatTailPreviewLines(lines: string[], maxLines: number): string {
   if (lines.length === 0) return '';
-  const displayLines = expanded ? lines : lines.slice(Math.max(0, lines.length - maxLines));
+  const displayLines = lines.slice(Math.max(0, lines.length - maxLines));
   let text = displayLines.join('\n');
-  if (!expanded && lines.length > maxLines) {
-    text = `... (${lines.length - maxLines} earlier lines, to expand)\n${text}`;
+  if (lines.length > maxLines) {
+    text = `... (${lines.length - maxLines} earlier lines)\n${text}`;
   }
   return text;
 }
 
-function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): string {
+function formatToolExecutionForDisplay(part: MessagePart): string {
   const name = part.name || 'tool';
   const args = asRecord(part.args);
   const output = normaliseToolOutputText(extractToolText(part.content));
@@ -269,7 +271,7 @@ function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): st
 
     const outputLines = output.trim() ? output.trim().split('\n') : [];
     if (outputLines.length > 0) {
-      text += `\n\n${formatTailPreviewLines(outputLines, expanded, 5)}`;
+      text += `\n\n${formatTailPreviewLines(outputLines, 5)}`;
     }
 
     const truncation = asRecord(details?.truncation);
@@ -304,26 +306,7 @@ function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): st
         ? `:${offset ?? 1}${limit !== undefined ? `-${(offset ?? 1) + limit - 1}` : ''}`
         : '';
 
-    let text = `read ${path}${range}`;
-    if (extractToolText(part.content)) {
-      text += '\n\n[content hidden]';
-    }
-
-    const truncation = asRecord(details?.truncation);
-    if (truncation?.truncated) {
-      const outputLines = Number(truncation.outputLines) || 0;
-      const totalLines = Number(truncation.totalLines) || 0;
-      const maxLines = Number(truncation.maxLines);
-      if (truncation.firstLineExceedsLimit) {
-        text += `\n[First line exceeds ${formatSize(Number(truncation.maxBytes) || 0)} limit]`;
-      } else if (truncation.truncatedBy === 'lines') {
-        text += `\n[Truncated: showing ${outputLines} of ${totalLines} lines (${Number.isFinite(maxLines) ? maxLines : '?'} line limit)]`;
-      } else {
-        text += `\n[Truncated: ${outputLines} lines shown (${formatSize(Number(truncation.maxBytes) || 0)} limit)]`;
-      }
-    }
-
-    return text;
+    return `read ${path}${range}`;
   }
 
   if (name === 'ls' || name === 'find' || name === 'grep') {
@@ -350,7 +333,7 @@ function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): st
 
     const previewLimit = name === 'grep' ? 15 : 20;
     if (output.trim()) {
-      text += `\n\n${formatPreviewLines(output.trim().split('\n'), expanded, previewLimit)}`;
+      text += `\n\n${formatPreviewLines(output.trim().split('\n'), previewLimit)}`;
     }
 
     const truncation = asRecord(details?.truncation);
@@ -391,7 +374,7 @@ function formatToolExecutionForDisplay(part: MessagePart, expanded: boolean): st
     if (content === null) {
       text += `\n\n[invalid content arg - expected string]`;
     } else if (content) {
-      text += `\n\n${formatPreviewLines(replaceTabs(content).split('\n'), expanded, 10)}`;
+      text += `\n\n${formatPreviewLines(replaceTabs(content).split('\n'), 10)}`;
     }
 
     if (part.isError && output) {
@@ -534,7 +517,8 @@ export default function App() {
     return () => {
       if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
       if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
-      if (externalSessionSyncTimerRef.current) window.clearInterval(externalSessionSyncTimerRef.current);
+      if (externalSessionSyncTimerRef.current)
+        window.clearInterval(externalSessionSyncTimerRef.current);
       externalSessionSyncTimerRef.current = null;
       externalSessionSyncAbortRef.current?.abort();
       externalSessionSyncAbortRef.current = null;
@@ -542,6 +526,19 @@ export default function App() {
       wsRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSessionsView) return;
+    void loadSessions();
+  }, [isSessionsView, selectedProjectCwd]);
+
+  useEffect(() => {
+    if (!isSessionsView) return;
+    const timer = window.setInterval(() => {
+      void loadSessions();
+    }, EXTERNAL_SESSION_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [isSessionsView, selectedProjectCwd]);
 
   useEffect(() => {
     if (!threadRef.current) return;
@@ -690,6 +687,7 @@ export default function App() {
         setIsStreaming(false);
         setHasActiveSession(false);
         activeRpcSessionRef.current = null;
+        void loadSessions();
       }
     };
 
@@ -731,6 +729,7 @@ export default function App() {
     pendingSessionRef.current = null;
     activeRpcSessionRef.current = { cwd, sessionFile: sessionFile ?? null };
     setHasActiveSession(true);
+    void loadSessions();
     return true;
   }
 
@@ -1091,6 +1090,7 @@ export default function App() {
 
       case 'agent_start':
         setIsStreaming(true);
+        void loadSessions();
         break;
 
       case 'agent_end':
@@ -1824,25 +1824,6 @@ function FolderBrowser({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={onBrowseToParent}
-            disabled={!canNavigateUp}
-            title="back"
-            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="10.5,3 5,8 10.5,13" />
-            </svg>
-          </button>
-          <button
             onClick={onOpenCurrentFolder}
             disabled={!cwd}
             title="open current folder"
@@ -1862,6 +1843,25 @@ function FolderBrowser({
               <path d="M8 3h5v5" />
               <path d="M13 3 7 9" />
               <path d="M11 8v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" />
+            </svg>
+          </button>
+          <button
+            onClick={onBrowseToParent}
+            disabled={!canNavigateUp}
+            title="back"
+            className="inline-flex items-center justify-center h-10 w-10 shrink-0 aspect-square rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="10.5,3 5,8 10.5,13" />
             </svg>
           </button>
         </div>
@@ -1973,6 +1973,14 @@ function SessionPicker({
           {sessions.map((session) => {
             const label = session.firstPrompt || session.id.slice(0, 8);
             const time = session.timestamp ? new Date(session.timestamp).toLocaleString() : '';
+            const isWorking = Boolean(session.isWorking);
+            const isActive = Boolean(session.isActive);
+            const statusLabel = isWorking ? 'working' : isActive ? 'active' : 'idle';
+            const statusDotClass = isWorking
+              ? 'bg-pi-success animate-pulse-dot'
+              : isActive
+                ? 'bg-pi-accent'
+                : 'bg-pi-border-muted';
             return (
               <div
                 key={session.file}
@@ -1983,8 +1991,15 @@ function SessionPicker({
                   className="w-full text-left cursor-pointer"
                 >
                   <div className="text-sm text-gray-800 truncate pr-8">{label}</div>
-                  <div className="text-[11px] text-pi-muted mt-1">
-                    {session.messageCount} msgs · {time}
+                  <div className="text-[11px] text-pi-muted mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span>{session.messageCount} msgs</span>
+                    <span>·</span>
+                    <span>{time}</span>
+                    <span>·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass}`} />
+                      {statusLabel}
+                    </span>
                   </div>
                 </button>
                 <button
@@ -2028,24 +2043,21 @@ function Part({ part }: { part: MessagePart }) {
 }
 
 function ToolPart({ part }: { part: MessagePart }) {
-  const [expanded, setExpanded] = useState(false);
-  const body = useMemo(() => formatToolExecutionForDisplay(part, expanded), [expanded, part]);
+  const body = useMemo(() => formatToolExecutionForDisplay(part), [part]);
+  const preMaxHeightClass = part.name === 'edit' ? '' : 'max-h-64';
+  const preOverflowClass = part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
 
   return (
     <div
-      className={`my-1.5 text-xs overflow-hidden ${
+      className={`my-1.5 px-2.5 py-2 text-xs overflow-hidden ${
         part.done ? (part.isError ? 'bg-pi-tool-error' : 'bg-pi-tool-success') : 'bg-pi-tool-pending'
       }`}
     >
-      <button
-        onClick={() => setExpanded((value) => !value)}
-        title={expanded ? 'collapse tool output' : 'expand tool output'}
-        className="w-full px-2.5 py-2 text-left cursor-pointer"
+      <pre
+        className={`tool-io-pre ${preMaxHeightClass} ${preOverflowClass} ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}
       >
-        <pre className={`tool-io-pre max-h-64 overflow-auto ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}>
-          {body}
-        </pre>
-      </button>
+        {body}
+      </pre>
     </div>
   );
 }
