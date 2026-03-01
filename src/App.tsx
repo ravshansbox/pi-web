@@ -80,6 +80,7 @@ type ComposerAttachment = PromptImage & {
 };
 
 type QueuedPrompt = {
+  id: string;
   message: string;
   images: PromptImage[];
 };
@@ -663,7 +664,7 @@ export default function App() {
     requestAnimationFrame(() => {
       if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
     });
-  }, [currentMessages, availableModels.length, currentModel?.id, currentModel?.provider]);
+  }, [currentMessages, promptQueue.length, availableModels.length, currentModel?.id, currentModel?.provider]);
 
   useEffect(() => {
     if (!inputRef.current) return;
@@ -1667,7 +1668,10 @@ export default function App() {
 
     if (isIPhoneDevice()) inputRef.current?.blur();
     if (isStreaming) {
-      setPromptQueue((q) => [...q, { message: text, images }]);
+      setPromptQueue((q) => [
+        ...q,
+        { id: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, message: text, images },
+      ]);
       return;
     }
     const sent = wsSend({
@@ -1817,21 +1821,44 @@ export default function App() {
           </div>
 
           <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-2 md:px-6">
-            {currentMessages.length === 0 ? (
+            {currentMessages.length === 0 && promptQueue.length === 0 ? (
               <div className="flex items-center justify-center h-full text-pi-muted text-base">
                 choose a session and start prompting.
               </div>
             ) : (
-              currentMessages
-                .filter(
+              (() => {
+                const conversationMessages = currentMessages.filter(
                   (msg) =>
                     (msg.role === 'user' || msg.role === 'assistant') &&
                     (msg.role === 'user' ||
                       msg.parts.some(
                         (p) => p.type === 'tool' || (p.type === 'text' && (p.content ?? '').trim()),
                       )),
-                )
-                .map((msg) => <MessageBubble key={msg.id} msg={msg} />)
+                );
+                const steeringMessages = currentMessages.filter(
+                  (msg) =>
+                    (msg.role === 'steering' || msg.role === 'system') &&
+                    msg.parts.some((p) => p.type === 'text' && (p.content ?? '').trim()),
+                );
+                const queuedSteeringMessages: MessageEntry[] = promptQueue.map((queued) => {
+                  const message = queued.message.trim();
+                  const fallback =
+                    queued.images.length > 0
+                      ? queued.images.length === 1
+                        ? '[queued image]'
+                        : `[${queued.images.length} queued images]`
+                      : '[queued message]';
+                  return {
+                    id: queued.id,
+                    role: 'steering',
+                    parts: [{ type: 'text', content: message || fallback, done: true }],
+                  };
+                });
+
+                return [...conversationMessages, ...steeringMessages, ...queuedSteeringMessages].map(
+                  (msg) => <MessageBubble key={msg.id} msg={msg} />,
+                );
+              })()
             )}
           </div>
 
@@ -1913,7 +1940,6 @@ export default function App() {
                   })()}
               </span>
             )}
-            {isStreaming && promptQueue.length > 0 && <span>{promptQueue.length} queued</span>}
           </div>
 
           <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
@@ -2006,7 +2032,7 @@ export default function App() {
                   disabled={!isConnected}
                   title={isStreaming ? 'queue message' : 'send'}
                   aria-label={isStreaming ? 'queue message' : 'send message'}
-                  className="relative h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"
+                  className="h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"
                 >
                   <svg
                     width="18"
@@ -2022,11 +2048,6 @@ export default function App() {
                     <line x1="2" y1="9" x2="16" y2="9" />
                     <polyline points="10,3 16,9 10,15" />
                   </svg>
-                  {promptQueue.length > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 bg-pi-warning text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center leading-none">
-                      {promptQueue.length}
-                    </span>
-                  )}
                 </button>
                 <button
                   onClick={sendAbort}
@@ -2049,18 +2070,22 @@ export default function App() {
 
 function MessageBubble({ msg }: { msg: MessageEntry }) {
   const isUser = msg.role === 'user';
+  const isSteering = msg.role === 'steering' || msg.role === 'system';
   const hasVisibleTextPart = msg.parts.some(
     (part) => part.type === 'text' && Boolean((part.content ?? '').trim()),
   );
   const hasToolPart = msg.parts.some((part) => part.type === 'tool');
-  const isToolOnlyMessage = !isUser && hasToolPart && !hasVisibleTextPart;
+  const isToolOnlyMessage = !isUser && !isSteering && hasToolPart && !hasVisibleTextPart;
+  const bubbleToneClass = isUser || isSteering ? 'bg-pi-user-bg border border-pi-border-muted' : 'bg-pi-card-bg border border-pi-border-muted';
 
   return (
     <div className="mb-2 min-w-0">
       <div
-        className={`rounded-lg ${isToolOnlyMessage ? 'p-0' : 'px-2 py-1.5'} min-w-0 overflow-hidden ${isUser ? 'bg-pi-user-bg' : 'bg-pi-card-bg border border-pi-border-muted'}`}
+        className={`rounded-lg ${isToolOnlyMessage ? 'p-0' : 'px-2 py-1.5'} min-w-0 overflow-hidden ${bubbleToneClass}`}
       >
-        <div className="text-xs md:text-sm leading-relaxed break-words min-w-0">
+        <div
+          className={`text-xs md:text-sm leading-relaxed break-words min-w-0 ${isSteering ? 'text-pi-muted' : ''}`}
+        >
           {msg.parts.map((part, index) => (
             <Part key={`${msg.id}-${index}`} part={part} />
           ))}

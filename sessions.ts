@@ -124,7 +124,7 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
         if (entry.type !== 'message' || !entry.message) continue;
         const msg = entry.message;
         const role = msg.role;
-        if (!role || role === 'system') continue;
+        if (!role) continue;
 
         if (role === 'toolResult' || role === 'tool_result') {
           const id = msg.toolCallId;
