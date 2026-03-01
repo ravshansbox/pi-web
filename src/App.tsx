@@ -1913,11 +1913,7 @@ export default function App() {
                   })()}
               </span>
             )}
-            {isStreaming && (
-              <span>
-                responding{promptQueue.length > 0 ? ` · ${promptQueue.length} queued` : ''}
-              </span>
-            )}
+            {isStreaming && promptQueue.length > 0 && <span>{promptQueue.length} queued</span>}
           </div>
 
           <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
@@ -1975,7 +1971,7 @@ export default function App() {
                     sendPrompt();
                   }
                 }}
-                className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 font-mono resize-none min-h-[42px] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
+                className="prompt-input flex-1 bg-white border border-pi-border-muted rounded-lg px-3 py-2.5 font-mono leading-5 resize-none min-h-[var(--composer-control-size)] max-h-[200px] outline-none focus:border-pi-accent disabled:opacity-50 disabled:cursor-default"
               />
               <div className="flex flex-row gap-1 flex-shrink-0">
                 <button
@@ -1989,7 +1985,7 @@ export default function App() {
                         : 'selected model does not support file attachments'
                   }
                   aria-label="attach file"
-                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                  className="h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
                   <svg
                     width="18"
@@ -2007,14 +2003,10 @@ export default function App() {
                 </button>
                 <button
                   onClick={sendPrompt}
-                  disabled={
-                    !isConnected ||
-                    !hasActiveSession ||
-                    (!inputValue.trim() && composerAttachments.length === 0)
-                  }
+                  disabled={!isConnected}
                   title={isStreaming ? 'queue message' : 'send'}
                   aria-label={isStreaming ? 'queue message' : 'send message'}
-                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"
+                  className="relative h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"
                 >
                   <svg
                     width="18"
@@ -2040,7 +2032,7 @@ export default function App() {
                   onClick={sendAbort}
                   disabled={!isStreaming || !hasActiveSession}
                   title="stop"
-                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                  className="h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
                   <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
                     <rect x="4" y="4" width="10" height="10" rx="1.5" />
