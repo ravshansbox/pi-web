@@ -10,14 +10,21 @@ A web UI for the [pi coding agent](https://github.com/badlogic/pi-mono).
 npx -y pi-web@latest
 ```
 
-Then open [http://localhost:3100](http://localhost:3100) in your browser.
+Then open [http://127.0.0.1:8192](http://127.0.0.1:8192) in your browser.
 
 ## Options
 
 ```
---port <number>   Port to listen on (default: 3100, env: PORT)
---host <string>   Host to bind to (default: localhost, env: HOST)
---help            Show help
+--port <number>      Port to listen on (default: 8192, env: PORT)
+--host <string>      Host to bind to (default: 127.0.0.1, env: HOST)
+--agent <pi|omp>     Agent backend profile (default: pi)
+--help               Show help
+```
+
+To run against Oh My Pi, start with:
+
+```bash
+npx -y pi-web@latest --agent omp
 ```
 
 ## Features
@@ -35,7 +42,8 @@ Then open [http://localhost:3100](http://localhost:3100) in your browser.
 git clone https://github.com/ravshansbox/pi-web
 cd pi-web
 npm install
-npm run dev
+npm run dev:pi   # Pi backend
+npm run dev:omp  # Oh My Pi backend
 ```
 
 Requires Node.js 22+.

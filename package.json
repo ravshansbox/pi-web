@@ -20,7 +20,9 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js\"",
+    "dev": "npm run dev:pi",
+    "dev:pi": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js --agent pi\"",
+    "dev:omp": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js --agent omp\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "build:bin": "node scripts/generate-bin.mjs",
     "preview": "vite preview",

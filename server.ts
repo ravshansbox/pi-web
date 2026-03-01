@@ -5,7 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, normalize, relative, reso
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RpcSession } from './rpc.js';
-import { listSessions, readSessionMessages, getSessionFilePath } from './sessions.js';
+import { listSessions, readSessionMessages, getSessionFilePath, type AgentKind } from './sessions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -16,9 +16,10 @@ pi-web - Web UI for the pi coding agent
 Usage: pi-web [options]
 
 Options:
-  --port <number>   Port to listen on (default: 8192, env: PORT)
-  --host <string>   Host to bind to (default: 127.0.0.1, env: HOST)
-  -h, --help        Show this help message
+  --port <number>      Port to listen on (default: 8192, env: PORT)
+  --host <string>      Host to bind to (default: 127.0.0.1, env: HOST)
+  --agent <pi|omp>     Agent backend profile (default: pi)
+  -h, --help           Show this help message
   `.trim(),
   );
   process.exit(0);
@@ -34,9 +35,23 @@ function getArg(name: string): string | undefined {
   return undefined;
 }
 
+function parseAgent(value?: string): AgentKind {
+  const agent = (value || 'pi').toLowerCase();
+  if (agent === 'pi' || agent === 'omp') return agent;
+  console.error(`invalid --agent value "${value}". expected "pi" or "omp"`);
+  process.exit(1);
+}
+
+function getAgentCommand(agent: AgentKind): string {
+  return agent === 'omp'
+    ? 'npx -y @oh-my-pi/pi-coding-agent@latest'
+    : 'npx -y @mariozechner/pi-coding-agent@latest';
+}
+
+const AGENT = parseAgent(getArg('agent'));
 const PORT = parseInt(getArg('port') || process.env.PORT || '8192', 10);
 const HOST = getArg('host') || process.env.HOST || '127.0.0.1';
-const PI_CMD = process.env.PI_CMD || 'npx -y @mariozechner/pi-coding-agent@latest';
+const AGENT_CMD = getAgentCommand(AGENT);
 const DEFAULT_IDLE_SESSION_TTL_MS = 60_000;
 const idleSessionTtlMsEnv = parseInt(process.env.PI_WEB_IDLE_SESSION_TTL_MS || '', 10);
 const IDLE_SESSION_TTL_MS =
@@ -131,7 +146,7 @@ const server = createServer((req, res) => {
   if (req.url?.startsWith('/api/sessions')) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const cwd = url.searchParams.get('cwd') || undefined;
-    listSessions({ cwd, limit: 50 })
+    listSessions({ cwd, limit: 50, agent: AGENT })
       .then((data) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
@@ -168,7 +183,7 @@ const server = createServer((req, res) => {
       res.end(JSON.stringify({ error: 'cwd and filename parameters required' }));
       return;
     }
-    const file = getSessionFilePath(cwd, filename);
+    const file = getSessionFilePath(cwd, filename, AGENT);
 
     if (req.method === 'DELETE') {
       try {
@@ -317,11 +332,11 @@ function registerDiscoveredSessionKey(managed: ManagedRpcSession, event: any) {
 }
 
 function createManagedSession(cwd: string, sessionFile: string | null): ManagedRpcSession {
-  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile) : undefined;
+  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
   let managed: ManagedRpcSession | null = null;
 
   const rpc = new RpcSession({
-    piCmd: PI_CMD,
+    piCmd: AGENT_CMD,
     cwd,
     sessionFile: sessionPath,
     onEvent: (event) => {

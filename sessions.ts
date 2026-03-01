@@ -1,10 +1,17 @@
 import { readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
-const SESSION_DIR = join(homedir(), '.pi', 'agent', 'sessions');
+export type AgentKind = 'pi' | 'omp';
+
+const HOME_DIR = resolve(homedir());
+
+function getSessionDir(agent: AgentKind): string {
+  const configDir = agent === 'omp' ? '.omp' : '.pi';
+  return join(HOME_DIR, configDir, 'agent', 'sessions');
+}
 
 export interface SessionSummary {
   id: string;
@@ -31,28 +38,45 @@ export interface ParsedMessage {
   };
 }
 
-function cwdToSessionDir(cwd: string): string {
-  return '-' + cwd.replace(/\//g, '-') + '--';
+function cwdToSessionDir(cwd: string, agent: AgentKind): string {
+  const normalisedCwd = resolve(cwd);
+
+  if (agent === 'omp') {
+    if (
+      normalisedCwd === HOME_DIR ||
+      normalisedCwd.startsWith(`${HOME_DIR}/`) ||
+      normalisedCwd.startsWith(`${HOME_DIR}\\`)
+    ) {
+      const relative = normalisedCwd.slice(HOME_DIR.length).replace(/^[/\\]/, '');
+      return `-${relative.replace(/[/\\:]/g, '-')}`;
+    }
+  }
+
+  const encoded = normalisedCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-');
+  return `--${encoded}--`;
 }
 
-export function getSessionFilePath(cwd: string, filename: string): string {
-  return join(SESSION_DIR, cwdToSessionDir(cwd), filename);
+export function getSessionFilePath(cwd: string, filename: string, agent: AgentKind = 'pi'): string {
+  return join(getSessionDir(agent), cwdToSessionDir(cwd, agent), filename);
 }
+
 export async function listSessions(opts: {
   cwd?: string;
   limit?: number;
+  agent?: AgentKind;
 }): Promise<SessionSummary[]> {
-  const { cwd, limit = 30 } = opts;
+  const { cwd, limit = 30, agent = 'pi' } = opts;
   const results: SessionSummary[] = [];
+  const sessionDir = getSessionDir(agent);
 
   try {
-    const cwdDirs = await readdir(SESSION_DIR, { withFileTypes: true });
+    const cwdDirs = await readdir(sessionDir, { withFileTypes: true });
     const targetDirs = cwd
-      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd))
+      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent))
       : cwdDirs.filter((d) => d.isDirectory());
 
     for (const dir of targetDirs) {
-      const dirPath = join(SESSION_DIR, dir.name);
+      const dirPath = join(sessionDir, dir.name);
       let files: string[];
       try {
         files = (await readdir(dirPath)).filter((f) => f.endsWith('.jsonl'));
