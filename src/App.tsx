@@ -64,6 +64,24 @@ type Model = {
   provider: string;
   contextWindow?: number;
   reasoning?: boolean;
+  input?: string[];
+};
+
+type PromptImage = {
+  type: 'image';
+  data: string;
+  mimeType: string;
+};
+
+type ComposerAttachment = PromptImage & {
+  id: string;
+  name: string;
+  size: number;
+};
+
+type QueuedPrompt = {
+  message: string;
+  images: PromptImage[];
 };
 
 type SessionStats = {
@@ -122,6 +140,56 @@ function projectsRoutePath(cwd?: string | null): string {
 function normaliseThinkingLevel(value: unknown): ThinkingLevel | null {
   if (typeof value !== 'string') return null;
   return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : null;
+}
+
+function normaliseModel(value: unknown): Model | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const id = typeof record.id === 'string' ? record.id : '';
+  const name = typeof record.name === 'string' ? record.name : id;
+  const provider = typeof record.provider === 'string' ? record.provider : '';
+  if (!id || !provider) return null;
+
+  const contextWindow =
+    typeof record.contextWindow === 'number' && Number.isFinite(record.contextWindow)
+      ? record.contextWindow
+      : undefined;
+  const reasoning =
+    typeof record.reasoning === 'boolean'
+      ? record.reasoning
+      : typeof record.reasoning === 'number'
+        ? Boolean(record.reasoning)
+        : undefined;
+  const input = Array.isArray(record.input)
+    ? record.input.filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+
+  return { id, name, provider, contextWindow, reasoning, input };
+}
+
+function modelSupportsFileAttachments(model: Model | null): boolean {
+  return Boolean(model?.input?.includes('image'));
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('failed to read file'));
+        return;
+      }
+      const commaIndex = reader.result.indexOf(',');
+      if (commaIndex < 0) {
+        reject(new Error('invalid file payload'));
+        return;
+      }
+      resolve(reader.result.slice(commaIndex + 1));
+    };
+    reader.onerror = () => reject(new Error('failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function getInitialFolderBrowserCwdFromUrl(): string | null {
@@ -460,7 +528,9 @@ export default function App() {
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off');
   const [selectedProvider, setSelectedProvider] = useState<string>('');
-  const [promptQueue, setPromptQueue] = useState<string[]>([]);
+  const [promptQueue, setPromptQueue] = useState<QueuedPrompt[]>([]);
+  const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
+  const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
   const [hasLoadedSessions, setHasLoadedSessions] = useState(false);
 
@@ -490,6 +560,7 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const modelsRetryRef = useRef<number | null>(null);
@@ -512,6 +583,10 @@ export default function App() {
   const externalSessionSyncInFlightRef = useRef(false);
   const lastExternalSessionSignatureRef = useRef<string | null>(null);
 
+  const modelSupportsAttachments = useMemo(
+    () => modelSupportsFileAttachments(currentModel),
+    [currentModel],
+  );
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
@@ -539,6 +614,15 @@ export default function App() {
   useEffect(() => {
     if (!isNewSessionRoute) sessionRouteSyncAttemptsRef.current.clear();
   }, [isNewSessionRoute]);
+
+  useEffect(() => {
+    if (modelSupportsAttachments || composerAttachments.length === 0) return;
+    setComposerAttachments([]);
+    setComposerNotice(
+      'Attached files were removed because the selected model does not support file attachments.',
+    );
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [composerAttachments.length, modelSupportsAttachments]);
 
   useEffect(() => {
     if (!isProjectsView) return;
@@ -635,6 +719,11 @@ export default function App() {
       (session) => session.cwd === selectedProjectCwd && session.file === activeSessionFile,
     );
     if (!exists && hasLoadedSessions) {
+      const activeRpcSession = activeRpcSessionRef.current;
+      const isActiveRouteSession =
+        activeRpcSession?.cwd === selectedProjectCwd &&
+        activeRpcSession?.sessionFile === activeSessionFile;
+      if (isActiveRouteSession || syncNavigatedRef.current) return;
       navigate(projectRoutePath(selectedProjectCwd), { replace: true });
     }
   }, [
@@ -715,13 +804,17 @@ export default function App() {
       if (msg.type === 'rpc_event') handleRpcEvent(msg.event);
       if (msg.type === 'error') {
         console.error('[pi-web]', msg.message);
-        if (
-          typeof msg.message === 'string' &&
-          msg.message.includes('no active session') &&
-          (hasActiveSessionRef.current || pendingSessionRef.current)
-        ) {
-          scheduleRequestModels(150);
-          requestStats();
+        if (typeof msg.message === 'string') {
+          if (msg.message.toLowerCase().includes('attachment')) {
+            setComposerNotice(msg.message);
+          }
+          if (
+            msg.message.includes('no active session') &&
+            (hasActiveSessionRef.current || pendingSessionRef.current)
+          ) {
+            scheduleRequestModels(150);
+            requestStats();
+          }
         }
       }
       if (msg.type === 'session_ended') {
@@ -922,6 +1015,8 @@ export default function App() {
         parts.push({ type: 'text', content: block.text, done: true });
       } else if (block.type === 'thinking' && block.thinking) {
         parts.push({ type: 'thinking', content: block.thinking, done: true });
+      } else if (block.type === 'image') {
+        parts.push({ type: 'text', content: '[attached image]', done: true });
       } else if (
         block.type === 'toolCall' ||
         block.type === 'tool_call' ||
@@ -1019,13 +1114,9 @@ export default function App() {
     switch (event.type) {
       case 'response': {
         if (event.command === 'get_available_models') {
-          const models: Model[] = (event.data?.models ?? []).map((m: any) => ({
-            id: m.id,
-            name: m.name,
-            provider: m.provider,
-            contextWindow: m.contextWindow,
-            reasoning: m.reasoning,
-          }));
+          const models: Model[] = (event.data?.models ?? [])
+            .map((model: unknown) => normaliseModel(model))
+            .filter((model): model is Model => model != null);
           if (models.length > 0) {
             setAvailableModels(models);
             availableModelsRef.current = models;
@@ -1038,17 +1129,10 @@ export default function App() {
         }
         if (event.command === 'get_state') {
           const state = event.data ?? {};
-          const model = state.model;
+          const model = normaliseModel(state.model);
           if (model) {
-            const m = {
-              id: model.id,
-              name: model.name,
-              provider: model.provider,
-              contextWindow: model.contextWindow,
-              reasoning: model.reasoning,
-            };
-            setCurrentModel(m);
-            currentModelRef.current = m;
+            setCurrentModel(model);
+            currentModelRef.current = model;
             setSelectedProvider(model.provider);
             if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
             if (availableModelsRef.current.length === 0) scheduleRequestModels();
@@ -1093,6 +1177,7 @@ export default function App() {
                   ...prev,
                 ];
               });
+              activeRpcSessionRef.current = { cwd: syncRequest.cwd, sessionFile };
               syncNavigatedRef.current = true;
               navigate(sessionRoutePath(syncRequest.cwd, sessionFile), { replace: true });
             } else if (
@@ -1109,17 +1194,10 @@ export default function App() {
           }
         }
         if (event.command === 'set_model' && event.success) {
-          const model = event.data;
+          const model = normaliseModel(event.data);
           if (model) {
-            const m = {
-              id: model.id,
-              name: model.name,
-              provider: model.provider,
-              contextWindow: model.contextWindow,
-              reasoning: model.reasoning,
-            };
-            setCurrentModel(m);
-            currentModelRef.current = m;
+            setCurrentModel(model);
+            currentModelRef.current = model;
           }
           wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
         }
@@ -1156,7 +1234,12 @@ export default function App() {
           const [next, ...rest] = q;
           wsSend({
             type: 'rpc_command',
-            command: { type: 'prompt', message: next, id: `web-${Date.now()}` },
+            command: {
+              type: 'prompt',
+              message: next.message,
+              images: next.images.length > 0 ? next.images : undefined,
+              id: `web-${Date.now()}`,
+            },
           });
           return rest;
         });
@@ -1342,17 +1425,10 @@ export default function App() {
       }
 
       case 'model_changed': {
-        const model = event.model;
+        const model = normaliseModel(event.model);
         if (model) {
-          const m = {
-            id: model.id,
-            name: model.name,
-            provider: model.provider,
-            contextWindow: model.contextWindow,
-            reasoning: model.reasoning,
-          };
-          setCurrentModel(m);
-          currentModelRef.current = m;
+          setCurrentModel(model);
+          currentModelRef.current = model;
         }
         const level = normaliseThinkingLevel(event.thinkingLevel ?? event.level);
         if (level) setThinkingLevel(level);
@@ -1394,6 +1470,9 @@ export default function App() {
   function resetSessionViewState() {
     setCurrentMessages([]);
     setInputValue('');
+    setComposerAttachments([]);
+    setComposerNotice(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     streamingMessageIdRef.current = null;
     setIsStreaming(false);
     setSessionStats(null);
@@ -1502,18 +1581,103 @@ export default function App() {
     navigate(projectRoutePath(selectedProjectCwd));
   }
 
+  async function handleAttachmentSelection(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    if (!modelSupportsAttachments) {
+      setComposerNotice('Selected model does not support file attachments.');
+      return;
+    }
+
+    const selectedFiles = Array.from(files);
+    const loadedAttachments: ComposerAttachment[] = [];
+    let skippedNonImageCount = 0;
+    let failedReadCount = 0;
+
+    for (const file of selectedFiles) {
+      if (!file.type.startsWith('image/')) {
+        skippedNonImageCount++;
+        continue;
+      }
+
+      try {
+        const data = await readFileAsBase64(file);
+        loadedAttachments.push({
+          id: crypto.randomUUID(),
+          type: 'image',
+          data,
+          mimeType: file.type,
+          name: file.name,
+          size: file.size,
+        });
+      } catch {
+        failedReadCount++;
+      }
+    }
+
+    if (loadedAttachments.length > 0) {
+      setComposerAttachments((prev) => [...prev, ...loadedAttachments]);
+    }
+
+    const notices: string[] = [];
+    if (skippedNonImageCount > 0) {
+      notices.push(
+        `${skippedNonImageCount} non-image file${skippedNonImageCount === 1 ? '' : 's'} ignored`,
+      );
+    }
+    if (failedReadCount > 0) {
+      notices.push(`${failedReadCount} file${failedReadCount === 1 ? '' : 's'} could not be read`);
+    }
+
+    setComposerNotice(notices.length > 0 ? notices.join('. ') : null);
+  }
+
+  function openAttachmentPicker() {
+    if (!hasActiveSession) return;
+    if (!modelSupportsAttachments) {
+      setComposerNotice('Selected model does not support file attachments.');
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
+  function removeComposerAttachment(attachmentId: string) {
+    setComposerAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
+    setComposerNotice(null);
+  }
+
   function sendPrompt() {
     const text = inputValue.trim();
-    if (!text || !isConnected || !hasActiveSession) return;
+    if ((!text && composerAttachments.length === 0) || !isConnected || !hasActiveSession) return;
+    if (composerAttachments.length > 0 && !modelSupportsAttachments) {
+      setComposerNotice('Selected model does not support file attachments.');
+      return;
+    }
+
+    const images: PromptImage[] = composerAttachments.map((attachment) => ({
+      type: 'image',
+      data: attachment.data,
+      mimeType: attachment.mimeType,
+    }));
+
     setInputValue('');
+    setComposerAttachments([]);
+    setComposerNotice(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
     if (isIPhoneDevice()) inputRef.current?.blur();
     if (isStreaming) {
-      setPromptQueue((q) => [...q, text]);
+      setPromptQueue((q) => [...q, { message: text, images }]);
       return;
     }
     const sent = wsSend({
       type: 'rpc_command',
-      command: { type: 'prompt', message: text, id: `web-${Date.now()}` },
+      command: {
+        type: 'prompt',
+        message: text,
+        images: images.length > 0 ? images : undefined,
+        id: `web-${Date.now()}`,
+      },
     });
     if (sent && isNewSessionRoute && selectedProjectCwd) {
       requestSessionRouteSync(selectedProjectCwd);
@@ -1560,6 +1724,9 @@ export default function App() {
     if (activeSessionFileRef.current === file) {
       setCurrentMessages([]);
       setInputValue('');
+      setComposerAttachments([]);
+      setComposerNotice(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       streamingMessageIdRef.current = null;
       setIsStreaming(false);
       setHasActiveSession(false);
@@ -1750,6 +1917,43 @@ export default function App() {
           </div>
 
           <div className="px-4 pb-4 pt-3 md:px-6 border-t border-pi-border-muted bg-pi-card-bg">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void handleAttachmentSelection(e.target.files);
+                e.target.value = '';
+              }}
+            />
+
+            {composerAttachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {composerAttachments.map((attachment) => (
+                  <span
+                    key={attachment.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-pi-border-muted bg-pi-user-bg px-2 py-1 text-[11px] text-pi-muted"
+                    title={attachment.name}
+                  >
+                    <span className="max-w-[180px] truncate">
+                      {attachment.name} ({formatSize(attachment.size)})
+                    </span>
+                    <button
+                      onClick={() => removeComposerAttachment(attachment.id)}
+                      title="remove attachment"
+                      className="inline-flex h-4 w-4 items-center justify-center rounded text-pi-muted hover:text-pi-accent cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {composerNotice && <div className="mb-2 text-[11px] text-pi-warning">{composerNotice}</div>}
+
             <div className="flex gap-2 items-center">
               <span className="sr-only" aria-live="polite">
                 {connectionA11yLabel}
@@ -1771,8 +1975,39 @@ export default function App() {
               />
               <div className="flex flex-row gap-1 flex-shrink-0">
                 <button
+                  onClick={openAttachmentPicker}
+                  disabled={!hasActiveSession || !modelSupportsAttachments}
+                  title={
+                    !hasActiveSession
+                      ? 'create or select a session'
+                      : modelSupportsAttachments
+                        ? 'attach file'
+                        : 'selected model does not support file attachments'
+                  }
+                  aria-label="attach file"
+                  className="h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 18 18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M6 9.5 10.8 4.7a2.8 2.8 0 1 1 4 4L8.5 15a4 4 0 1 1-5.7-5.7L8.3 3.8" />
+                  </svg>
+                </button>
+                <button
                   onClick={sendPrompt}
-                  disabled={!isConnected || !hasActiveSession}
+                  disabled={
+                    !isConnected ||
+                    !hasActiveSession ||
+                    (!inputValue.trim() && composerAttachments.length === 0)
+                  }
                   title={isStreaming ? 'queue message' : 'send'}
                   aria-label={isStreaming ? 'queue message' : 'send message'}
                   className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"

@@ -249,6 +249,7 @@ type ManagedRpcSession = {
   rpc: RpcSession;
   clients: Set<WebSocket>;
   isAgentRunning: boolean;
+  currentModelSupportsImages: boolean | null;
   keys: Set<string>;
   idleCleanupTimer: NodeJS.Timeout | null;
   isClosing: boolean;
@@ -348,6 +349,36 @@ function registerDiscoveredSessionKey(managed: ManagedRpcSession, event: any) {
   registerManagedSessionKey(managed, key);
 }
 
+function deriveModelSupportsImages(model: unknown): boolean | null {
+  if (!model || typeof model !== 'object') return null;
+  const input = (model as { input?: unknown }).input;
+  if (!Array.isArray(input)) return null;
+  return input.includes('image');
+}
+
+function updateSessionModelCapability(managed: ManagedRpcSession, event: any) {
+  if (!event || typeof event !== 'object') return;
+
+  if (event.type === 'model_changed') {
+    const supports = deriveModelSupportsImages(event.model);
+    if (supports != null) managed.currentModelSupportsImages = supports;
+    return;
+  }
+
+  if (event.type === 'response') {
+    if (event.command === 'get_state') {
+      const supports = deriveModelSupportsImages(event.data?.model);
+      if (supports != null) managed.currentModelSupportsImages = supports;
+      return;
+    }
+
+    if (event.command === 'set_model' && event.success) {
+      const supports = deriveModelSupportsImages(event.data);
+      if (supports != null) managed.currentModelSupportsImages = supports;
+    }
+  }
+}
+
 function createManagedSession(cwd: string, sessionFile: string | null): ManagedRpcSession {
   const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
   let managed: ManagedRpcSession | null = null;
@@ -366,6 +397,7 @@ function createManagedSession(cwd: string, sessionFile: string | null): ManagedR
         managed.isAgentRunning = false;
         cleanupIfIdle(managed);
       }
+      updateSessionModelCapability(managed, event);
       registerDiscoveredSessionKey(managed, event);
       broadcast(managed, { type: 'rpc_event', event });
     },
@@ -393,6 +425,7 @@ function createManagedSession(cwd: string, sessionFile: string | null): ManagedR
     rpc,
     clients: new Set<WebSocket>(),
     isAgentRunning: false,
+    currentModelSupportsImages: null,
     keys: new Set<string>(),
     idleCleanupTimer: null,
     isClosing: false,
@@ -450,7 +483,24 @@ wss.on('connection', (ws: WebSocket) => {
         sendToSocket(ws, { type: 'error', message: 'no active session' });
         return;
       }
-      managed.rpc.send(msg.command);
+
+      const command = msg.command;
+      const isPromptLikeCommand =
+        command?.type === 'prompt' || command?.type === 'steer' || command?.type === 'follow_up';
+      const hasImages = Array.isArray(command?.images) && command.images.length > 0;
+      if (
+        isPromptLikeCommand &&
+        hasImages &&
+        managed.currentModelSupportsImages === false
+      ) {
+        sendToSocket(ws, {
+          type: 'error',
+          message: 'selected model does not support file attachments',
+        });
+        return;
+      }
+
+      managed.rpc.send(command);
       return;
     }
 
