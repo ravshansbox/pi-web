@@ -1895,7 +1895,7 @@ export default function App() {
                 {sessionStats.tokens.cacheWrite > 0 && (
                   <span>w{formatTokens(sessionStats.tokens.cacheWrite)}</span>
                 )}
-                {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(3)}</span>}
+                {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(2)}</span>}
                 {currentModel?.contextWindow &&
                   contextUsageTokens &&
                   (() => {
@@ -1903,7 +1903,7 @@ export default function App() {
                     const color = pct > 90 ? 'text-pi-error' : pct > 70 ? 'text-pi-warning' : '';
                     return (
                       <span className={color}>
-                        {pct.toFixed(1)}%/{formatTokens(currentModel.contextWindow!)}
+                        {pct.toFixed(0)}%/{formatTokens(currentModel.contextWindow!)}
                       </span>
                     );
                   })()}
@@ -2284,7 +2284,7 @@ function SessionPicker({
                 <button
                   onClick={() => onDeleteSession(session.file)}
                   title="delete session"
-                  className="absolute top-3 right-3 hidden group-hover:inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
+                  className="absolute top-3 right-3 inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto"
                 >
                   <svg
                     width="10"
