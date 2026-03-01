@@ -1764,17 +1764,19 @@ export default function App() {
                   onClick={sendPrompt}
                   disabled={!isConnected || !hasActiveSession}
                   title={isStreaming ? 'queue message' : 'send'}
-                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                  aria-label={isStreaming ? 'queue message' : 'send message'}
+                  className="relative h-[42px] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg bg-pi-accent text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default disabled:bg-pi-border-muted"
                 >
                   <svg
-                    width="20"
-                    height="20"
+                    width="18"
+                    height="18"
                     viewBox="0 0 18 18"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    aria-hidden="true"
                   >
                     <line x1="2" y1="9" x2="16" y2="9" />
                     <polyline points="10,3 16,9 10,15" />
