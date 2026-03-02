@@ -346,7 +346,10 @@ function formatTailPreviewLines(lines: string[], maxLines: number): string {
   return text;
 }
 
-function formatToolExecutionForDisplay(part: MessagePart): string {
+type DiffLine = { type: 'add' | 'delete' | 'context'; content: string };
+type ToolDisplayResult = { kind: 'text'; text: string } | { kind: 'diff'; header: string; lines: DiffLine[] };
+
+function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
   const name = part.name || 'tool';
   const args = asRecord(part.args);
   const output = normaliseToolOutputText(extractToolText(part.content));
@@ -383,7 +386,7 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
       text += `\n\n[${warnings.join('. ')}]`;
     }
 
-    return text;
+    return { kind: 'text', text };
   }
 
   if (name === 'read') {
@@ -396,7 +399,7 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
         ? `:${offset ?? 1}${limit !== undefined ? `-${(offset ?? 1) + limit - 1}` : ''}`
         : '';
 
-    return `read ${path}${range}`;
+    return { kind: 'text', text: `read ${path}${range}` };
   }
 
   if (name === 'ls' || name === 'find' || name === 'grep') {
@@ -452,7 +455,7 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
       text += `\n[Truncated: ${warnings.join(', ')}]`;
     }
 
-    return text;
+    return { kind: 'text', text };
   }
 
   if (name === 'write') {
@@ -471,7 +474,7 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
       text += `\n\n${output}`;
     }
 
-    return text;
+    return { kind: 'text', text };
   }
 
   if (name === 'edit') {
@@ -479,21 +482,28 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
     const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
     const firstChangedLine = details?.firstChangedLine;
     const lineSuffix = typeof firstChangedLine === 'number' ? `:${firstChangedLine}` : '';
-    let text = `edit ${path}${lineSuffix}`;
+    const header = `edit ${path}${lineSuffix}`;
 
     const diff = typeof details?.diff === 'string' ? details.diff : '';
     if (part.isError) {
+      let text = header;
       if (output) text += `\n\n${output}`;
-      return text;
+      return { kind: 'text', text };
     }
 
     if (diff) {
-      text += `\n\n${normaliseToolOutputText(diff)}`;
-      return text;
+      const normalisedDiff = normaliseToolOutputText(diff);
+      const lines = normalisedDiff.split('\n').map((line): DiffLine => {
+        if (line.startsWith('+')) return { type: 'add', content: line };
+        if (line.startsWith('-')) return { type: 'delete', content: line };
+        return { type: 'context', content: line };
+      });
+      return { kind: 'diff', header, lines };
     }
 
+    let text = header;
     if (output) text += `\n\n${output}`;
-    return text;
+    return { kind: 'text', text };
   }
 
   let text = name;
@@ -505,7 +515,7 @@ function formatToolExecutionForDisplay(part: MessagePart): string {
     }
   }
   if (output) text += `\n\n${output}`;
-  return text;
+  return { kind: 'text', text };
 }
 
 export default function App() {
@@ -2347,16 +2357,42 @@ function Part({ part }: { part: MessagePart }) {
 }
 
 function ToolPart({ part }: { part: MessagePart }) {
-  const body = useMemo(() => formatToolExecutionForDisplay(part), [part]);
+  const result = useMemo(() => formatToolExecutionForDisplay(part), [part]);
   const preMaxHeightClass = part.name === 'edit' ? '' : 'max-h-64';
   const preOverflowClass = part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
+
+  if (result.kind === 'diff') {
+    return (
+      <div className="my-0 px-1.5 py-1 text-xs overflow-hidden bg-pi-tool-success">
+        <pre className={`tool-io-pre ${preMaxHeightClass} ${preOverflowClass}`}>
+          <div className="text-pi-tool-output">{result.header}</div>
+          <div className="mt-2">
+            {result.lines.map((line, i) => (
+              <div
+                key={i}
+                className={
+                  line.type === 'add'
+                    ? 'text-[var(--color-pi-diff-add)] bg-[var(--color-pi-diff-add-bg)]'
+                    : line.type === 'delete'
+                      ? 'text-[var(--color-pi-diff-delete)] bg-[var(--color-pi-diff-delete-bg)]'
+                      : 'text-pi-tool-output'
+                }
+              >
+                {line.content}
+              </div>
+            ))}
+          </div>
+        </pre>
+      </div>
+    );
+  }
 
   return (
     <div className="my-0 px-1.5 py-1 text-xs overflow-hidden bg-pi-tool-success">
       <pre
         className={`tool-io-pre ${preMaxHeightClass} ${preOverflowClass} ${part.isError ? 'text-pi-error' : 'text-pi-tool-output'}`}
       >
-        {body}
+        {result.text}
       </pre>
     </div>
   );
