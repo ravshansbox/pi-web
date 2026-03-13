@@ -1,7 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
+interface CommandSpec {
+  command: string;
+  args: string[];
+}
+
 interface RpcSessionOptions {
-  piCmd: string;
+  piCmd: CommandSpec;
   cwd: string;
   sessionFile?: string;
   onEvent: (event: any) => void;
@@ -17,9 +22,8 @@ export class RpcSession {
 
   constructor(opts: RpcSessionOptions) {
     this.opts = opts;
-    const parts = opts.piCmd.split(/\s+/);
-    const cmd = parts[0];
-    const args = [...parts.slice(1), '--mode', 'rpc'];
+    const cmd = opts.piCmd.command;
+    const args = [...opts.piCmd.args, '--mode', 'rpc'];
 
     this.proc = spawn(cmd, args, {
       cwd: opts.cwd,

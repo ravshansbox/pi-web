@@ -118,7 +118,7 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
   try {
     for await (const line of rl) {
       const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('{"type":"message"')) continue;
+      if (!trimmed) continue;
       try {
         const entry = JSON.parse(trimmed);
         if (entry.type !== 'message' || !entry.message) continue;
@@ -188,33 +188,27 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      if (!header) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed.type === 'session') {
-            header = parsed;
-            continue;
-          }
-        } catch {}
-      }
+      try {
+        const parsed = JSON.parse(trimmed);
 
-      if (trimmed.startsWith('{"type":"message"')) {
-        messageCount++;
-        if (!firstPrompt && trimmed.includes('"role":"user"')) {
-          try {
-            const msg = JSON.parse(trimmed);
-            if (msg.message?.role === 'user') {
-              const content = msg.message.content;
-              if (typeof content === 'string') {
-                firstPrompt = content.slice(0, 120);
-              } else if (Array.isArray(content)) {
-                const text = content.find((c: any) => c.type === 'text');
-                if (text?.text) firstPrompt = text.text.slice(0, 120);
-              }
-            }
-          } catch {}
+        if (!header && parsed.type === 'session') {
+          header = parsed;
+          continue;
         }
-      }
+
+        if (parsed.type !== 'message') continue;
+
+        messageCount++;
+        if (!firstPrompt && parsed.message?.role === 'user') {
+          const content = parsed.message.content;
+          if (typeof content === 'string') {
+            firstPrompt = content.slice(0, 120);
+          } else if (Array.isArray(content)) {
+            const text = content.find((c: any) => c.type === 'text');
+            if (text?.text) firstPrompt = text.text.slice(0, 120);
+          }
+        }
+      } catch {}
     }
   } finally {
     rl.close();

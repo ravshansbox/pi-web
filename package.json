@@ -31,6 +31,7 @@
     "dev:omp": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js --agent omp\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "build:bin": "node scripts/generate-bin.mjs",
+    "test:smoke": "node scripts/smoke-checks.mjs",
     "preview": "vite preview",
     "start": "node build/server/server.js",
     "prepack": "npm run build && npm run build:bin"

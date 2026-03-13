@@ -658,7 +658,9 @@ export default function App() {
 
   useEffect(() => {
     if (!isSessionsView) return;
-    void loadSessions();
+    const controller = new AbortController();
+    void loadSessions(controller.signal);
+    return () => controller.abort();
   }, [isSessionsView, selectedProjectCwd]);
 
   useEffect(() => {
@@ -752,11 +754,25 @@ export default function App() {
     [availableModels],
   );
 
+  const effectiveSelectedProvider = useMemo(() => {
+    if (selectedProvider && providers.includes(selectedProvider)) return selectedProvider;
+    if (currentModel && providers.includes(currentModel.provider)) return currentModel.provider;
+    return providers[0] ?? '';
+  }, [currentModel, providers, selectedProvider]);
+
   const modelsForProvider = useMemo(
-    () => availableModels.filter((m) => m.provider === selectedProvider),
-    [availableModels, selectedProvider],
+    () => availableModels.filter((m) => m.provider === effectiveSelectedProvider),
+    [availableModels, effectiveSelectedProvider],
   );
-  const selectedModelId = currentModel?.provider === selectedProvider ? currentModel.id : '';
+  const selectedModelId = useMemo(() => {
+    if (
+      currentModel?.provider === effectiveSelectedProvider &&
+      modelsForProvider.some((model) => model.id === currentModel.id)
+    ) {
+      return currentModel.id;
+    }
+    return modelsForProvider[0]?.id ?? '';
+  }, [currentModel, effectiveSelectedProvider, modelsForProvider]);
   const thinkingLevelOptions = useMemo<ThinkingLevel[]>(() => {
     const levels = currentModel?.reasoning === false ? (['off'] as ThinkingLevel[]) : THINKING_LEVELS;
     return levels.includes(thinkingLevel)
@@ -778,6 +794,13 @@ export default function App() {
       selectedProjectCwd ? sessions.filter((session) => session.cwd === selectedProjectCwd) : [],
     [selectedProjectCwd, sessions],
   );
+
+  useEffect(() => {
+    if (selectedProvider !== effectiveSelectedProvider) {
+      setSelectedProvider(effectiveSelectedProvider);
+    }
+  }, [effectiveSelectedProvider, selectedProvider]);
+
   function connect() {
     const ws = new WebSocket(WS_BASE);
     wsRef.current = ws;
@@ -795,7 +818,13 @@ export default function App() {
       if (activeSessionFileRef.current || hasActiveSessionRef.current) {
         const file = activeSessionFileRef.current;
         const cwd = file
-          ? sessionsRef.current.find((s) => s.file === file)?.cwd
+          ? (
+              sessionsRef.current.find(
+                (s) =>
+                  s.file === file &&
+                  (!selectedProjectCwdRef.current || s.cwd === selectedProjectCwdRef.current),
+              )?.cwd ?? selectedProjectCwdRef.current
+            )
           : (selectedProjectCwdRef.current ?? sessionsRef.current[0]?.cwd);
         if (!file && !cwd) return;
         if (startSession(cwd, file ?? null)) {
@@ -915,13 +944,19 @@ export default function App() {
     }, delayMs);
   }
 
-  async function loadSessions() {
+  async function loadSessions(signal?: AbortSignal) {
     try {
-      const res = await fetch('/api/sessions');
+      const query = selectedProjectCwdRef.current
+        ? `?cwd=${encodeURIComponent(selectedProjectCwdRef.current)}`
+        : '';
+      const res = await fetch(`/api/sessions${query}`, { signal });
+      if (!res.ok) throw new Error('failed to load sessions');
       setSessions((await res.json()) as SessionSummary[]);
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) return;
+      console.error('[pi-web] failed to load sessions', error);
     } finally {
-      setHasLoadedSessions(true);
+      if (!signal?.aborted) setHasLoadedSessions(true);
     }
   }
 
@@ -1550,9 +1585,7 @@ export default function App() {
     void activateExistingSession(selectedProjectCwd, activeSessionFile);
   }, [activeSessionFile, isNewSessionRoute, selectedProjectCwd, sessionIdParam, sessions]);
 
-  function switchSession(file: string) {
-    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd;
-    if (!cwd) return;
+  function switchSession(cwd: string, file: string) {
     navigate(sessionRoutePath(cwd, file));
   }
 
@@ -1707,7 +1740,9 @@ export default function App() {
   }
 
   function handleModelChange(modelId: string) {
-    const model = availableModels.find((m) => m.id === modelId && m.provider === selectedProvider);
+    const model = availableModels.find(
+      (m) => m.id === modelId && m.provider === effectiveSelectedProvider,
+    );
     if (!model) return;
     wsSend({
       type: 'rpc_command',
@@ -1725,17 +1760,16 @@ export default function App() {
     });
   }
 
-  async function deleteSession(file: string) {
-    const cwd = sessionsRef.current.find((s) => s.file === file)?.cwd ?? selectedProjectCwd ?? '';
+  async function deleteSession(cwd: string, file: string) {
     try {
       await fetch(
         `/api/session?cwd=${encodeURIComponent(cwd)}&filename=${encodeURIComponent(file)}`,
         { method: 'DELETE' },
       );
     } catch {}
-    setSessions((prev) => prev.filter((s) => s.file !== file));
-    const activeCwd = selectedProjectCwd ?? sessionsRef.current.find((s) => s.file === file)?.cwd;
-    if (activeSessionFileRef.current === file) {
+    setSessions((prev) => prev.filter((s) => !(s.cwd === cwd && s.file === file)));
+    const activeCwd = selectedProjectCwd === cwd ? cwd : null;
+    if (activeSessionFileRef.current === file && activeCwd === cwd) {
       setCurrentMessages([]);
       setInputValue('');
       setComposerAttachments([]);
@@ -1878,7 +1912,7 @@ export default function App() {
                 {availableModels.length > 0 && (
                   <>
                     <select
-                      value={selectedProvider}
+                      value={effectiveSelectedProvider}
                       onChange={(e) => handleProviderChange(e.target.value)}
                       disabled={isStreaming}
                       className="font-mono text-pi-control-fg bg-pi-control-bg border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
@@ -2226,8 +2260,8 @@ function SessionPicker({
   sessions: SessionSummary[];
   onBack: () => void;
   onCreateSession: () => void;
-  onSelectSession: (file: string) => void;
-  onDeleteSession: (file: string) => void;
+  onSelectSession: (cwd: string, file: string) => void;
+  onDeleteSession: (cwd: string, file: string) => void;
 }) {
   return (
     <div className="mx-auto max-w-3xl">
@@ -2301,7 +2335,7 @@ function SessionPicker({
                 className="group relative w-full text-left rounded-xl border border-pi-border-muted bg-pi-card-bg px-4 py-3 hover:bg-pi-user-bg"
               >
                 <button
-                  onClick={() => onSelectSession(session.file)}
+                  onClick={() => onSelectSession(session.cwd, session.file)}
                   className="w-full text-left cursor-pointer"
                 >
                   <div className="text-sm text-pi-text truncate pr-8">{label}</div>
@@ -2317,7 +2351,7 @@ function SessionPicker({
                   </div>
                 </button>
                 <button
-                  onClick={() => onDeleteSession(session.file)}
+                  onClick={() => onDeleteSession(session.cwd, session.file)}
                   title="delete session"
                   className="absolute top-3 right-3 inline-flex items-center justify-center w-6 h-6 rounded text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer"
                 >
@@ -2511,11 +2545,52 @@ function inlineFormat(text: string): string {
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
   out = out.replace(/~~([^~]+)~~/g, "<del class='opacity-60'>$1</del>");
-  out = out.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    `<a href="$2" target="_blank" rel="noopener" class="text-pi-md-link underline">$1</a>`,
-  );
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
+    const safeHref = sanitiseHref(href);
+    if (!safeHref) return label;
+    return `<a href="${escapeHtmlAttribute(safeHref)}" target="_blank" rel="noopener noreferrer" class="text-pi-md-link underline">${label}</a>`;
+  });
   return out;
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(amp|lt|gt|quot|#39);/g, (match, entity: string) => {
+    switch (entity) {
+      case 'amp':
+        return '&';
+      case 'lt':
+        return '<';
+      case 'gt':
+        return '>';
+      case 'quot':
+        return '"';
+      case '#39':
+        return "'";
+      default:
+        return match;
+    }
+  });
+}
+
+function sanitiseHref(rawHref: string): string | null {
+  const decodedHref = decodeHtmlEntities(rawHref.trim());
+  if (!decodedHref) return null;
+  if (decodedHref.startsWith('#') || decodedHref.startsWith('/')) return decodedHref;
+  try {
+    const url = new URL(decodedHref, 'http://localhost');
+    const protocol = url.protocol.toLowerCase();
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') return decodedHref;
+  } catch {}
+  return null;
+}
+
+function escapeHtmlAttribute(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function escapeHtml(text: string): string {
@@ -2524,10 +2599,6 @@ function escapeHtml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 function getUsageTokens(usage?: Usage): number {

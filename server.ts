@@ -44,10 +44,10 @@ function parseAgent(value?: string): AgentKind {
   process.exit(1);
 }
 
-function getAgentCommand(agent: AgentKind): string {
+function getAgentCommand(agent: AgentKind): { command: string; args: string[] } {
   return agent === 'omp'
-    ? 'npx -y @oh-my-pi/pi-coding-agent@latest'
-    : 'npx -y @mariozechner/pi-coding-agent@latest';
+    ? { command: 'npx', args: ['-y', '@oh-my-pi/pi-coding-agent@latest'] }
+    : { command: 'npx', args: ['-y', '@mariozechner/pi-coding-agent@latest'] };
 }
 
 const AGENT = parseAgent(getArg('agent'));
@@ -67,6 +67,7 @@ const distDir =
 const htmlPath = join(distDir, 'index.html');
 const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
 const HOME_DIR = resolve(homedir() || '/');
+const SESSION_ROOT = resolve(join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'));
 
 type FolderEntry = {
   name: string;
@@ -127,6 +128,25 @@ function serveFile(filePath: string, res: any) {
   createReadStream(filePath).pipe(res);
 }
 
+function logServerError(context: string, error: unknown) {
+  console.error(`[pi-web] ${context}`, error);
+}
+
+function respondJson(res: any, statusCode: number, payload: unknown) {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+function isValidSessionFilename(filename: string): boolean {
+  return basename(filename) === filename && filename.endsWith('.jsonl');
+}
+
+function resolveSessionPath(cwd: string, filename: string): string | null {
+  if (!isValidSessionFilename(filename)) return null;
+  const resolved = resolve(getSessionFilePath(cwd, filename, AGENT));
+  return isWithinRoot(resolved, SESSION_ROOT) ? resolved : null;
+}
+
 const server = createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     if (!existsSync(htmlPath)) {
@@ -148,12 +168,11 @@ const server = createServer((req, res) => {
           ...session,
           ...getSessionRuntimeStatus(session.cwd, session.file),
         }));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(sessionsWithRuntime));
+        respondJson(res, 200, sessionsWithRuntime);
       })
       .catch((err) => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err) }));
+        logServerError('failed to list sessions', err);
+        respondJson(res, 500, { error: 'failed to list sessions' });
       });
     return;
   }
@@ -164,12 +183,11 @@ const server = createServer((req, res) => {
 
     listFolders(cwd)
       .then((data) => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(data));
+        respondJson(res, 200, data);
       })
       .catch((err) => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err) }));
+        logServerError('failed to list folders', err);
+        respondJson(res, 500, { error: 'failed to list folders' });
       });
     return;
   }
@@ -179,32 +197,37 @@ const server = createServer((req, res) => {
     const cwd = url.searchParams.get('cwd');
     const filename = url.searchParams.get('filename');
     if (!cwd || !filename) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'cwd and filename parameters required' }));
+      respondJson(res, 400, { error: 'cwd and filename parameters required' });
       return;
     }
-    const file = getSessionFilePath(cwd, filename, AGENT);
+    const file = resolveSessionPath(cwd, filename);
+    if (!file) {
+      respondJson(res, 400, { error: 'invalid session path' });
+      return;
+    }
 
     if (req.method === 'DELETE') {
       try {
+        const managed = findManagedSessionByFile(cwd, filename);
+        if (managed) {
+          closeManagedSession(managed);
+        }
         unlinkSync(file);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        respondJson(res, 200, { ok: true });
       } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err) }));
+        logServerError(`failed to delete session ${file}`, err);
+        respondJson(res, 500, { error: 'failed to delete session' });
       }
       return;
     }
 
     readSessionMessages(file)
       .then((messages) => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(messages));
+        respondJson(res, 200, messages);
       })
       .catch((err) => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err) }));
+        logServerError(`failed to read session ${file}`, err);
+        respondJson(res, 500, { error: 'failed to read session' });
       });
     return;
   }
@@ -214,8 +237,8 @@ const server = createServer((req, res) => {
     const safePath = normalize(url.pathname)
       .replace(/^(\.\.[/\\])+/, '')
       .replace(/^[/\\]+/, '');
-    const filePath = join(distDir, safePath);
-    if (filePath.startsWith(distDir) && existsSync(filePath) && statSync(filePath).isFile()) {
+    const filePath = resolve(join(distDir, safePath));
+    if (isWithinRoot(filePath, distDir) && existsSync(filePath) && statSync(filePath).isFile()) {
       serveFile(filePath, res);
       return;
     }
@@ -318,6 +341,19 @@ function closeManagedSession(managed: ManagedRpcSession) {
   managed.rpc.kill();
 }
 
+function findManagedSessionByFile(cwd: string, sessionFile: string): ManagedRpcSession | null {
+  const key = buildSessionKey(resolve(cwd), basename(sessionFile));
+  const direct = rpcSessions.get(key);
+  if (direct && !direct.isClosing) return direct;
+
+  for (const managed of rpcSessions.values()) {
+    if (managed.isClosing) continue;
+    if (managed.cwd === resolve(cwd) && managed.keys.has(key)) return managed;
+  }
+
+  return null;
+}
+
 function cleanupIfIdle(managed: ManagedRpcSession) {
   if (managed.isClosing) return;
   if (managed.clients.size > 0) {
@@ -413,6 +449,7 @@ function createManagedSession(
     },
     onError: (error) => {
       if (!managed) return;
+      logServerError(`rpc session error (${managed.cwd}${managed.sessionFile ? `/${managed.sessionFile}` : ''})`, error);
       broadcast(managed, { type: 'error', message: error });
     },
     onExit: (code) => {
