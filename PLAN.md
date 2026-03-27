@@ -1,94 +1,124 @@
 # Plan
 
 ## Goal
-Build a small, clear web UI for pi-agent that supports one primary flow: enter a prompt, submit it, stream progress in real time, then show either a completed response or an error.
+Extend the current pi web UI to support a home-rooted folder browser, session selection, session creation, and bookmarkable URLs that restore the chosen folder and session.
 
-## Chosen architecture
-- Use a small local Node backend for agent integration
-- Use the pi SDK in the backend rather than spawning pi through RPC
-- Use WebSocket between the browser UI and the backend for real-time updates
-- Keep the first version minimal and avoid adding protocol surface the UI does not yet need
+## Product flow
+1. On first load, show folders from the user's home directory.
+2. Let the user either enter a folder to browse deeper or choose a folder to work on.
+3. After a folder is chosen, show sessions for that folder.
+4. Let the user choose an existing session or create a new one.
+5. After a session is chosen, show the chat UI for that folder and session.
 
-## Scope
-- Keep the UI work centred on `src/App.tsx`
-- Keep `src/index.css` minimal
-- Add only the backend files needed to host a local WebSocket bridge to the pi SDK
-- Avoid extra components, hooks, helpers, or abstractions unless the code becomes unclear without them
+## Path model
+- Treat the user's home directory as the root.
+- Do not allow browsing or selecting anything outside the home directory.
+- Represent folders everywhere in the UI and URL as home-relative paths.
+- Do not expose absolute paths in the browser.
 
-## Current state
-- [x] Vite + React + TypeScript app is set up
-- [x] Tailwind is installed and available through Vite
-- [x] App content lives in `src/App.tsx` and is rendered from `src/index.tsx`
-- [x] A placeholder UI is in place
-- [x] No pi-agent integration exists in this repo yet
+Examples:
+- home root: `folder=`
+- nested folder: `folder=Projects/pi-web`
+- session URL: `?folder=Projects/pi-web&session=abc123`
 
-## Primary flow
-- [ ] Replace the placeholder with a single-screen prompt workflow in `src/App.tsx`
-- [ ] Add one prompt input area suitable for short and long requests
-- [ ] Add one primary submit control
-- [ ] Add one response area that can render streamed agent output
-- [ ] Connect the UI to the backend over one WebSocket connection
-- [ ] Keep UI state local unless the file becomes genuinely unclear
+## URL model
+- Make the selected folder and selected session bookmarkable.
+- Keep the URL minimal.
+- Store only:
+  - `folder` as a home-relative path
+  - `session` as the session id
+- Do not store provider or model in the URL.
 
-## Realtime integration
-- [ ] Add a small backend entrypoint that creates and owns a pi SDK session
-- [ ] Translate backend session events into a minimal browser-safe WebSocket protocol
-- [ ] Support one client command in v1: `prompt`
-- [ ] Support one optional client control in v1 if cheap to add safely: `abort`
-- [ ] Support these server events in v1:
-  - [ ] `run_started`
-  - [ ] `text_delta`
-  - [ ] `run_completed`
-  - [ ] `run_failed`
-- [ ] Keep tool events, steer, and follow-up out of v1 unless the UI genuinely needs them
+## Backend responsibilities
+- Resolve all requested folder paths relative to the user's home directory.
+- Reject absolute paths.
+- Reject any path that escapes the home directory via `..` or similar traversal.
+- List folders for a given relative path.
+- Select a working folder.
+- List sessions for the selected folder.
+- Create a new session for the selected folder.
+- Open an existing session for the selected folder.
+- Hydrate the chosen session so the UI can restore message history and current session metadata.
 
-## Session model
-- [ ] Start with the smallest honest ownership model, preferably one backend agent session per browser connection
-- [ ] Keep the first version single-user and local
-- [ ] Avoid pretending to support persistence, history, or multi-client coordination before those behaviours are implemented
+## Frontend responsibilities
+- Start in folder browsing mode.
+- Show the current relative folder path being browsed.
+- Provide one action to enter a folder and one action to choose it.
+- After folder selection, show session selection UI.
+- After session selection, show the existing chat UI.
+- Read `folder` and `session` from the URL on load.
+- Update the URL when folder or session selection changes.
 
-## Layout
-- [ ] Build a simple mobile-first page shell in `src/App.tsx`
-- [ ] Add sensible padding, vertical rhythm, and a readable max width
-- [ ] Keep the form and output stacked on small screens
-- [ ] Let the layout breathe slightly more on larger screens without changing the flow
+## Suggested protocol additions
+Client → server:
+- `list_folders`
+- `set_folder`
+- `list_sessions`
+- `create_session`
+- `set_session`
+- `hydrate_session`
 
-## Styling
-- [ ] Use Tailwind for the core visual styles
-- [ ] Keep `src/index.css` to the Tailwind import and only truly global essentials if needed
-- [ ] Define clear typography, spacing, and contrast using existing utilities
-- [ ] Keep the interface visually quiet and uncluttered
+Server → client:
+- `folders_list`
+- `folder_selected`
+- `sessions_list`
+- `session_created`
+- `session_selected`
+- `session_hydrated`
+- `run_failed`
 
-## UI states
-- [ ] Empty state: show the prompt field with brief helper copy
-- [ ] Connecting state: show clear backend connection feedback if the socket is not ready
-- [ ] Processing state: disable duplicate submission and show live activity while text streams in
-- [ ] Success state: show the completed response in a readable panel
-- [ ] Error state: show a short, honest error message with an obvious retry path
-- [ ] Ensure every state remains clear and usable on small screens
+## Stages
 
-## Content
-- [ ] Use British English in labels and copy
-- [ ] Keep labels short and literal
-- [ ] Remove any non-essential text or controls
+### Stage 1: folder browser
+- Add backend support for listing folders under home.
+- Add backend validation for home-relative paths.
+- Add a minimal frontend folder browser.
+- Support entering a folder and choosing a folder.
+- Keep this state separate from the chat UI.
 
-## Implementation approach
-- [ ] Make the change incrementally rather than through broad refactors
-- [ ] Reuse existing repo patterns before introducing anything new
-- [ ] Choose the smallest implementation that can truthfully represent the chosen real-time flow
-- [ ] Keep transport and UI contracts explicit rather than inferred from incidental code
-- [ ] Avoid fake complexity such as extra components or shared state before it is needed
+### Stage 2: session picker
+- Add backend support for listing sessions for a chosen folder.
+- Use pi session management primitives for listing and opening sessions.
+- Add frontend session selection UI.
+- Add a minimal action to create a new session.
+
+### Stage 3: session hydration
+- Open the selected session on the backend.
+- Return its existing messages to the frontend.
+- Return current session metadata needed by the UI.
+- Ensure prompt submission continues inside the selected session.
+
+### Stage 4: bookmarkable URL
+- Read `folder` and `session` from the URL on load.
+- If only `folder` is present, open the session picker for that folder.
+- If both `folder` and `session` are present, restore directly into chat.
+- Use `history.replaceState` for selection changes.
+
+## UI notes
+- Keep the interface single-screen and minimal.
+- Maintain the current mobile-first layout.
+- Preserve Enter-to-submit behaviour in the prompt form.
+- Keep Provider and Model inline.
+- Keep the prompt composer compact on iPhone.
+
+## Data notes
+- Sessions are scoped to the chosen folder.
+- Provider and model should come from the active or restored session state.
+- If needed, the last assistant message can be used only as a fallback hint for display, not as the source of truth.
 
 ## Validation
-- [ ] Run `npm run build`
-- [ ] Run the local app and backend together
-- [ ] Verify the socket connects and the prompt flow is observable end to end
-- [ ] Verify `run_started`, `text_delta`, `run_completed`, and `run_failed` can each be observed or forced deliberately
-- [ ] Check the layout at a small mobile width and a wider desktop width
+- Run `npm run build`.
+- Verify folder browsing never escapes home.
+- Verify choosing a folder shows only that folder's sessions.
+- Verify creating a session opens a fresh chat.
+- Verify choosing an existing session restores its history.
+- Verify bookmarkable URLs with `folder` and `session` restore correctly.
+- Verify small-screen behaviour on iPhone remains usable.
 
 ## Done when
-- [ ] The placeholder is replaced by a minimal prompt-and-response UI with live updates
-- [ ] The UI talks to a local backend over WebSocket
-- [ ] The backend talks to pi through the SDK
-- [ ] The main states are explicit and understandable
-- [ ] The implementation stays small, local, and easy to extend
+- The app starts with a home-rooted folder browser.
+- The user can enter folders and choose a working folder.
+- The user can choose or create a session for that folder.
+- The chosen folder and session are reflected in the URL.
+- Reloading with the same URL restores the same folder and session.
+- The implementation stays minimal and local.
