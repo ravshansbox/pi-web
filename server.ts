@@ -58,11 +58,12 @@ type ServerMessage =
       messages: ChatMessage[];
     }
   | { type: 'folders_list'; browserPath: string; folders: FolderOption[] }
-  | { type: 'folder_selected'; path: string; sessions: SessionOption[] }
+  | { type: 'folder_selected'; path: string; sessions: SessionOption[]; availableModels: ModelOption[] }
   | {
       type: 'session_selected';
       session: string;
       messages: ChatMessage[];
+      availableModels: ModelOption[];
       provider: string;
       model: string;
       thinkingLevel: ThinkingLevel;
@@ -78,10 +79,14 @@ type ServerMessage =
 
 const authStorage = AuthStorage.create();
 const modelRegistry = new ModelRegistry(authStorage);
-const availableModels = modelRegistry
-  .getAvailable()
-  .map((model) => ({ provider: model.provider, id: model.id, label: `${model.provider} / ${model.id}` }))
-  .sort((left, right) => left.label.localeCompare(right.label));
+
+function getAvailableModels() {
+  return modelRegistry
+    .getAvailable()
+    .map((model) => ({ provider: model.provider, id: model.id, label: `${model.provider} / ${model.id}` }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
 const defaultModel = modelRegistry.getAvailable().at(0);
 if (defaultModel === undefined) {
   throw new Error('Could not find any available pi models.');
@@ -249,6 +254,11 @@ wsServer.on('connection', async (socket) => {
     selectedModel = session.model ?? selectedModel;
     selectedSession = session.sessionId;
 
+    const availableThinkingLevels = session.getAvailableThinkingLevels();
+    if (!availableThinkingLevels.includes(session.thinkingLevel)) {
+      session.setThinkingLevel(availableThinkingLevels[0] || 'medium');
+    }
+
     unsubscribe = session.subscribe((event) => {
       if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
         responseText += event.assistantMessageEvent.delta;
@@ -300,7 +310,7 @@ wsServer.on('connection', async (socket) => {
         disposeSession();
         selectedFolder = relativePath;
         currentSessions = await listSessions(relativePath);
-        send({ type: 'folder_selected', path: relativePath, sessions: currentSessions });
+        send({ type: 'folder_selected', path: relativePath, sessions: currentSessions, availableModels: getAvailableModels() });
         return;
       }
 
@@ -312,7 +322,7 @@ wsServer.on('connection', async (socket) => {
 
         disposeSession();
         currentSessions = selectedFolder === null ? [] : await listSessions(selectedFolder);
-        send({ type: 'folder_selected', path: selectedFolder || '', sessions: currentSessions });
+        send({ type: 'folder_selected', path: selectedFolder || '', sessions: currentSessions, availableModels: getAvailableModels() });
         return;
       }
 
@@ -354,6 +364,7 @@ wsServer.on('connection', async (socket) => {
           type: 'session_selected',
           session: selectedSession || session?.sessionId || '',
           messages: toChatMessages(sessionMessages),
+          availableModels: getAvailableModels(),
           provider: lastAssistantModel.provider,
           model: lastAssistantModel.model,
           thinkingLevel: session?.thinkingLevel || 'medium',
@@ -394,6 +405,7 @@ wsServer.on('connection', async (socket) => {
           type: 'session_selected',
           session: selectedSession || message.session,
           messages: toChatMessages(sessionMessages),
+          availableModels: getAvailableModels(),
           provider: lastAssistantModel.provider,
           model: lastAssistantModel.model,
           thinkingLevel: session?.thinkingLevel || 'medium',
@@ -506,7 +518,7 @@ wsServer.on('connection', async (socket) => {
       type: 'connected',
       browserPath: initialFolders.browserPath,
       folders: initialFolders.folders,
-      availableModels,
+      availableModels: getAvailableModels(),
       selectedFolder,
       selectedSession,
       sessions: currentSessions,

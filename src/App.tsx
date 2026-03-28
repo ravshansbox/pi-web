@@ -40,11 +40,12 @@ type ServerMessage =
       messages: ChatMessage[];
     }
   | { type: 'folders_list'; browserPath: string; folders: FolderOption[] }
-  | { type: 'folder_selected'; path: string; sessions: SessionOption[] }
+  | { type: 'folder_selected'; path: string; sessions: SessionOption[]; availableModels: ModelOption[] }
   | {
       type: 'session_selected';
       session: string;
       messages: ChatMessage[];
+      availableModels: ModelOption[];
       provider: string;
       model: string;
       thinkingLevel: ThinkingLevel;
@@ -71,8 +72,31 @@ function getUrlState() {
 export function App() {
   const socketRef = useRef<WebSocket | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
+  const retryPromptRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const restoreRef = useRef(getUrlState());
+
+  const getThinkingOverrideKey = (provider: string, model: string) => `${provider}/${model}`;
+
+  const remapThinkingLevel = (level: ThinkingLevel, allowedLevels: ThinkingLevel[]): ThinkingLevel => {
+    if (allowedLevels.includes(level)) {
+      return level;
+    }
+
+    if (level === 'minimal' && allowedLevels.includes('low')) {
+      return 'low';
+    }
+
+    if (level === 'xhigh' && allowedLevels.includes('high')) {
+      return 'high';
+    }
+
+    if (level === 'off' && allowedLevels.includes('off')) {
+      return 'off';
+    }
+
+    return allowedLevels[0] || level;
+  };
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
@@ -83,6 +107,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium');
   const [availableThinkingLevels, setAvailableThinkingLevels] = useState<ThinkingLevel[]>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+  const [thinkingLevelOverrides, setThinkingLevelOverrides] = useState<Record<string, ThinkingLevel[]>>({});
   const [browserPath, setBrowserPath] = useState('');
   const [folders, setFolders] = useState<FolderOption[]>([]);
   const [selectedFolder, setSelectedFolder] = useState('');
@@ -118,6 +143,7 @@ export function App() {
       switch (message.type) {
         case 'connected': {
           setConnectionState('connected');
+          setThinkingLevelOverrides({});
           setAvailableModels(message.availableModels);
           setSelectedProvider(message.provider);
           setSelectedModel(message.model);
@@ -143,6 +169,7 @@ export function App() {
         case 'folder_selected': {
           setSelectedFolder(message.path);
           setSelectedSession('');
+          setAvailableModels(message.availableModels);
           setSessions(message.sessions);
           setMessages([]);
           setRunState('idle');
@@ -161,6 +188,7 @@ export function App() {
         case 'session_selected':
           setSelectedSession(message.session);
           setMessages(message.messages);
+          setAvailableModels(message.availableModels);
           setSelectedProvider(message.provider);
           setSelectedModel(message.model);
           setThinkingLevel(message.thinkingLevel);
@@ -208,6 +236,7 @@ export function App() {
         case 'run_completed': {
           const assistantId = pendingAssistantIdRef.current;
           pendingAssistantIdRef.current = null;
+          retryPromptRef.current = null;
           setRunState('success');
 
           if (assistantId === null) {
@@ -230,6 +259,45 @@ export function App() {
           pendingAssistantIdRef.current = null;
           setError(message.error);
           setRunState('error');
+
+          const invalidReasoningEffort = message.error.match(/reasoning_effort \(([^)]+)\)/i);
+          if (invalidReasoningEffort !== null) {
+            const attemptedLevel = invalidReasoningEffort[1] as ThinkingLevel;
+            const allowedLevels = Array.from(message.error.matchAll(/'([^']+)'/g))
+              .map((match) => match[1])
+              .filter((level): level is ThinkingLevel => ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(level));
+
+            if (allowedLevels.length > 0) {
+              const nextThinkingLevel = remapThinkingLevel(attemptedLevel, allowedLevels);
+              const retryPrompt = retryPromptRef.current;
+
+              setThinkingLevelOverrides((current) => ({
+                ...current,
+                [getThinkingOverrideKey(selectedProvider, selectedModel)]: allowedLevels,
+              }));
+              setThinkingLevel(nextThinkingLevel);
+              socket.send(JSON.stringify({ type: 'set_thinking_level', level: nextThinkingLevel }));
+
+              if (retryPrompt !== null) {
+                pendingAssistantIdRef.current = null;
+                setError('');
+                setRunState('idle');
+                setMessages((current) =>
+                  assistantId === null
+                    ? current
+                    : current.filter(
+                        (entry) => !(entry.id === assistantId && entry.role === 'assistant' && entry.text.length === 0),
+                      ),
+                );
+                window.setTimeout(() => {
+                  socket.send(JSON.stringify({ type: 'prompt', prompt: retryPrompt }));
+                }, 0);
+                return;
+              }
+            }
+          }
+
+          retryPromptRef.current = null;
 
           if (message.error === 'Request aborted.' || assistantId === null) {
             return;
@@ -299,6 +367,7 @@ export function App() {
 
     setSelectedProvider(nextModel.provider);
     setSelectedModel(nextModel.id);
+    setError('');
   }, [availableModels, providerOptions, selectedProvider]);
 
   useEffect(() => {
@@ -316,7 +385,20 @@ export function App() {
     }
 
     setSelectedModel(nextModel.id);
+    setError('');
   }, [modelOptions, selectedModel, selectedProvider]);
+
+  const effectiveAvailableThinkingLevels =
+    thinkingLevelOverrides[getThinkingOverrideKey(selectedProvider, selectedModel)] || availableThinkingLevels;
+
+  useEffect(() => {
+    if (effectiveAvailableThinkingLevels.length === 0 || effectiveAvailableThinkingLevels.includes(thinkingLevel)) {
+      return;
+    }
+
+    const nextThinkingLevel = remapThinkingLevel(thinkingLevel, effectiveAvailableThinkingLevels);
+    setThinkingLevel(nextThinkingLevel);
+  }, [effectiveAvailableThinkingLevels, thinkingLevel]);
 
   const surfaceClass = 'border-[#d7ded3] bg-white/90 shadow-sm';
   const pageClass = 'bg-[#eef3ea] text-zinc-950';
@@ -364,6 +446,7 @@ export function App() {
     }
 
     const trimmedPrompt = prompt.trim();
+    retryPromptRef.current = trimmedPrompt;
     setMessages((current) => [
       ...current,
       { id: `user-${crypto.randomUUID()}`, role: 'user', text: trimmedPrompt },
@@ -616,14 +699,14 @@ export function App() {
                   <select
                     className={`w-full rounded-xl border px-3 py-2 text-base outline-none transition sm:text-sm ${inputClass}`}
                     value={thinkingLevel}
-                    onChange={(event) =>
-                      socketRef.current?.send(
-                        JSON.stringify({ type: 'set_thinking_level', level: event.target.value }),
-                      )
-                    }
+                    onChange={(event) => {
+                      const level = event.target.value as ThinkingLevel;
+                      setThinkingLevel(level);
+                      socketRef.current?.send(JSON.stringify({ type: 'set_thinking_level', level }));
+                    }}
                     disabled={connectionState !== 'connected' || runState === 'running' || selectedSession.length === 0}
                   >
-                    {availableThinkingLevels.map((level) => (
+                    {effectiveAvailableThinkingLevels.map((level) => (
                       <option key={level} value={level}>
                         {level}
                       </option>
