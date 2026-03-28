@@ -26,7 +26,6 @@ type SessionOption = {
 type ServerMessage =
   | {
       type: 'connected';
-      homeFolder: string;
       browserPath: string;
       folders: FolderOption[];
       availableModels: ModelOption[];
@@ -71,6 +70,7 @@ function getUrlState() {
 export function App() {
   const socketRef = useRef<WebSocket | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const restoreRef = useRef(getUrlState());
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
@@ -224,15 +224,28 @@ export function App() {
           );
           return;
         }
-        case 'run_failed':
+        case 'run_failed': {
+          const assistantId = pendingAssistantIdRef.current;
           pendingAssistantIdRef.current = null;
           setError(message.error);
           setRunState('error');
-          setMessages((current) => [
-            ...current,
-            { id: `error-${crypto.randomUUID()}`, role: 'error', text: message.error },
-          ]);
+
+          if (message.error === 'Request aborted.' || assistantId === null) {
+            return;
+          }
+
+          setMessages((current) => {
+            const nextMessages = current.filter(
+              (entry) => !(entry.id === assistantId && entry.role === 'assistant' && entry.text.length === 0),
+            );
+
+            return [
+              ...nextMessages,
+              { id: `error-${crypto.randomUUID()}`, role: 'error', text: message.error },
+            ];
+          });
           return;
+        }
       }
     });
 
@@ -241,6 +254,10 @@ export function App() {
       socketRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -268,9 +285,9 @@ export function App() {
   const surfaceClass = 'border-[#d7ded3] bg-white/90 shadow-sm';
   const pageClass = 'bg-[#eef3ea] text-zinc-950';
   const mutedTextClass = 'text-zinc-700';
-  const inputClass = 'border-[#cfd8ca] bg-white text-zinc-950 focus:border-[#7b8d80]';
-  const secondaryButtonClass = 'border-[#cfd8ca] text-zinc-700 disabled:opacity-40';
-  const primaryButtonClass = 'bg-[#8fa892] text-zinc-950 disabled:bg-[#cfd8ca] disabled:text-[#6f7c73]';
+  const inputClass = 'border-[#cfd8ca] bg-white text-zinc-950 focus:border-[#7b8d80] font-[inherit]';
+  const secondaryButtonClass = 'border-[#cfd8ca] text-zinc-700 disabled:opacity-40 font-[inherit]';
+  const primaryButtonClass = 'bg-[#8fa892] text-zinc-950 disabled:bg-[#cfd8ca] disabled:text-[#6f7c73] font-[inherit]';
 
   const statusText = useMemo(() => {
     if (connectionState === 'connecting') {
@@ -353,6 +370,7 @@ export function App() {
   };
 
   const resetFolderSelection = () => {
+    socketRef.current?.send(JSON.stringify({ type: 'clear_folder' }));
     setSelectedFolder('');
     setSelectedSession('');
     setSessions([]);
@@ -363,6 +381,7 @@ export function App() {
   };
 
   const resetSessionSelection = () => {
+    socketRef.current?.send(JSON.stringify({ type: 'clear_session' }));
     setSelectedSession('');
     setMessages([]);
     setPrompt('');
@@ -452,7 +471,7 @@ export function App() {
                       key={session.id}
                       type="button"
                       onClick={() => socketRef.current?.send(JSON.stringify({ type: 'set_session', session: session.id }))}
-                      className={`block w-full rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${
+                      className={`block w-full rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm font-[inherit] ${
                         selectedSession === session.id ? primaryButtonClass : inputClass
                       }`}
                     >
@@ -482,6 +501,7 @@ export function App() {
               {messages.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   {messages.map((message) => {
+                    const isLastMessage = message.id === messages.at(-1)?.id;
                     const messageClass =
                       message.role === 'user'
                         ? 'self-end bg-[#8fa892] text-zinc-950'
@@ -490,9 +510,9 @@ export function App() {
                           : 'self-start bg-[#f3f6f0] text-zinc-950';
 
                     return (
-                      <article key={message.id} className="flex">
+                      <article key={message.id} className="flex" ref={isLastMessage ? messagesEndRef : undefined}>
                         <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 ${messageClass}`}>
-                          <pre className="whitespace-pre-wrap break-words">{message.text || '…'}</pre>
+                          <pre className="whitespace-pre-wrap break-words font-[inherit]">{message.text || '…'}</pre>
                         </div>
                       </article>
                     );

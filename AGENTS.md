@@ -14,3 +14,5 @@
 - Prefer semantic HTML for interactive UI. For prompt or search inputs with an action button, use a form so Enter submits by default.
 - For iPhone and small screens, prefer stacked controls, 16px input text, adequate tap targets, `dvh`, and safe-area-aware spacing.
 - This project is a web UI for pi-agent.
+- Prefer using Tailwind classes rather than adding CSS declarations.
+- When the user says "remember" or "note", update this `AGENTS.md` file with the instruction to retain it for future work.

@@ -37,12 +37,13 @@ type ClientMessage =
   | { type: 'list_folders'; path: string }
   | { type: 'set_folder'; path: string }
   | { type: 'create_session' }
-  | { type: 'set_session'; session: string };
+  | { type: 'set_session'; session: string }
+  | { type: 'clear_session' }
+  | { type: 'clear_folder' };
 
 type ServerMessage =
   | {
       type: 'connected';
-      homeFolder: string;
       browserPath: string;
       folders: FolderOption[];
       availableModels: ModelOption[];
@@ -273,6 +274,32 @@ wsServer.on('connection', async (socket) => {
         return;
       }
 
+      if (message.type === 'clear_session') {
+        if (activeRun) {
+          send({ type: 'run_failed', error: 'Stop the current request before changing session.' });
+          return;
+        }
+
+        disposeSession();
+        currentSessions = selectedFolder === null ? [] : await listSessions(selectedFolder);
+        send({ type: 'folder_selected', path: selectedFolder || '', sessions: currentSessions });
+        return;
+      }
+
+      if (message.type === 'clear_folder') {
+        if (activeRun) {
+          send({ type: 'run_failed', error: 'Stop the current request before changing folder.' });
+          return;
+        }
+
+        disposeSession();
+        selectedFolder = null;
+        currentSessions = [];
+        const result = await listFolders('');
+        send({ type: 'folders_list', browserPath: result.browserPath, folders: result.folders });
+        return;
+      }
+
       if (message.type === 'create_session') {
         if (selectedFolder === null) {
           send({ type: 'run_failed', error: 'Choose a folder first.' });
@@ -435,7 +462,6 @@ wsServer.on('connection', async (socket) => {
     const initialFolders = await listFolders('');
     send({
       type: 'connected',
-      homeFolder: HOME,
       browserPath: initialFolders.browserPath,
       folders: initialFolders.folders,
       availableModels,
