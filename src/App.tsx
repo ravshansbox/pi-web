@@ -259,7 +259,6 @@ export function App() {
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ block: 'end' });
-      window.scrollTo(0, document.documentElement.scrollHeight);
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -413,8 +412,8 @@ export function App() {
   const parentPath = browserPath.split('/').slice(0, -1).join('/');
 
   return (
-    <main className={`min-h-dvh px-4 py-4 font-['JetBrains_Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation_Mono','Courier_New',monospace] sm:px-6 sm:py-10 ${pageClass}`}>
-      <div className="mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-3xl min-h-0 flex-col gap-4 sm:min-h-[calc(100dvh-5rem)] sm:gap-6">
+    <main className={`h-dvh overflow-hidden px-4 py-4 font-['JetBrains_Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation_Mono','Courier_New',monospace] sm:px-6 sm:py-10 ${pageClass}`}>
+      <div className="mx-auto flex h-full w-full max-w-3xl min-h-0 flex-col gap-4 sm:gap-6">
         {!selectedFolder ? (
           <section className={`rounded-2xl border p-4 sm:p-5 ${surfaceClass}`}>
             <div className="space-y-3">
@@ -509,8 +508,8 @@ export function App() {
 
         {selectedSession ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
-            <section className={`flex-1 rounded-2xl border p-4 sm:p-5 ${surfaceClass}`}>
-              <div className="mb-4 flex items-center justify-between gap-3">
+            <section className={`flex min-h-0 flex-1 flex-col rounded-2xl border ${surfaceClass}`}>
+              <div className="flex items-center justify-between gap-3 border-b border-[#d7ded3] bg-white/90 px-4 py-4 sm:px-5 sm:py-5">
                 <p className={`min-w-0 truncate text-sm ${mutedTextClass}`}>{selectedFolder}</p>
                 <button
                   type="button"
@@ -521,7 +520,8 @@ export function App() {
                 </button>
               </div>
               {messages.length > 0 ? (
-                <div className="flex flex-col gap-3">
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+                  <div className="flex flex-col gap-3">
                   {messages.map((message) => {
                     const messageClass =
                       message.role === 'user'
@@ -538,12 +538,15 @@ export function App() {
                       </article>
                     );
                   })}
-                  <div ref={messagesEndRef} />
+                    <div ref={messagesEndRef} />
+                  </div>
                 </div>
               ) : (
-                <p className={`text-sm leading-6 ${mutedTextClass}`}>
-                  Your conversation history will appear here.
-                </p>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+                  <p className={`text-sm leading-6 ${mutedTextClass}`}>
+                    Your conversation history will appear here.
+                  </p>
+                </div>
               )}
             </section>
 
