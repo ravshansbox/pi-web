@@ -16,6 +16,7 @@ type ChatMessage = {
 type FolderOption = {
   name: string;
   path: string;
+  sessionCount: number;
 };
 
 type SessionOption = {
@@ -114,16 +115,24 @@ function resolveHomePath(path: string) {
 async function listFolders(path: string) {
   const { absolutePath, relativePath } = resolveHomePath(path);
   const entries = await readdir(absolutePath, { withFileTypes: true });
+  const folders = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(async (entry) => {
+        const folderPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        const sessions = await listSessions(folderPath);
+
+        return {
+          name: entry.name,
+          path: folderPath,
+          sessionCount: sessions.length,
+        };
+      }),
+  );
 
   return {
     browserPath: relativePath,
-    folders: entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-      .map((entry) => ({
-        name: entry.name,
-        path: relativePath ? `${relativePath}/${entry.name}` : entry.name,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+    folders: folders.sort((left, right) => left.name.localeCompare(right.name)),
   };
 }
 

@@ -17,6 +17,7 @@ type ChatMessage = {
 type FolderOption = {
   name: string;
   path: string;
+  sessionCount: number;
 };
 type SessionOption = {
   id: string;
@@ -414,38 +415,37 @@ export function App() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm">{browserPath || 'Home'}</p>
-                <div className="flex items-center gap-2">
-                  {canGoUp ? (
-                    <button
-                      type="button"
-                      onClick={() => browseFolder(parentPath)}
-                      className={`rounded-xl border px-3 py-2 text-sm transition ${secondaryButtonClass}`}
-                    >
-                      Up
-                    </button>
-                  ) : null}
-                  {browserPath ? (
-                    <button
-                      type="button"
-                      onClick={() => chooseFolder(browserPath)}
-                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${primaryButtonClass}`}
-                    >
-                      Use
-                    </button>
-                  ) : null}
-                </div>
+                {browserPath ? (
+                  <button
+                    type="button"
+                    onClick={() => chooseFolder(browserPath)}
+                    className={`rounded-xl px-3 py-2 text-sm font-medium transition ${primaryButtonClass}`}
+                  >
+                    Open
+                  </button>
+                ) : null}
               </div>
 
               <div className="space-y-2">
+                {canGoUp ? (
+                  <button
+                    type="button"
+                    onClick={() => browseFolder(parentPath)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${inputClass}`}
+                  >
+                    <span>..</span>
+                  </button>
+                ) : null}
                 {folders.length > 0 ? (
                   folders.map((folder) => (
                     <button
                       key={folder.path}
                       type="button"
                       onClick={() => browseFolder(folder.path)}
-                      className={`block w-full rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${inputClass}`}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${inputClass}`}
                     >
-                      {folder.name}
+                      <span>{folder.name}</span>
+                      <span className="text-xs text-zinc-600">{folder.sessionCount}</span>
                     </button>
                   ))
                 ) : (
