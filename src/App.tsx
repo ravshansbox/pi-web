@@ -520,14 +520,14 @@ export function App() {
                     const isLastMessage = message.id === messages.at(-1)?.id;
                     const messageClass =
                       message.role === 'user'
-                        ? 'self-end bg-[#8fa892] text-zinc-950'
+                        ? 'self-end bg-[#b8c8b8] text-zinc-950'
                         : message.role === 'error'
                           ? 'self-start bg-red-100 text-red-700'
                           : 'self-start bg-[#f3f6f0] text-zinc-950';
 
                     return (
                       <article key={message.id} className="flex" ref={isLastMessage ? messagesEndRef : undefined}>
-                        <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 ${messageClass}`}>
+                        <div className={`w-full rounded-2xl px-4 py-3 text-sm leading-6 ${messageClass}`}>
                           <pre className="whitespace-pre-wrap break-words font-[inherit]">{message.text || '…'}</pre>
                         </div>
                       </article>
