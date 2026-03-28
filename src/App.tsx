@@ -344,11 +344,6 @@ export function App() {
     socketRef.current.send(JSON.stringify({ type: 'set_model', provider: selectedProvider, model }));
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    handleAction();
-  };
-
   const browseFolder = (path: string) => {
     socketRef.current?.send(JSON.stringify({ type: 'list_folders', path }));
   };
@@ -566,7 +561,12 @@ export function App() {
                   </p>
                 ) : null}
 
-                <form onSubmit={handleSubmit}>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleAction();
+                  }}
+                >
                   <div className={`flex items-center gap-1.5 rounded-xl border p-1 ${inputClass}`}>
                     <input
                       type="text"
