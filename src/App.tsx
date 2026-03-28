@@ -287,6 +287,37 @@ export function App() {
     [availableModels, selectedProvider],
   );
 
+  useEffect(() => {
+    if (selectedProvider.length === 0 || providerOptions.includes(selectedProvider)) {
+      return;
+    }
+
+    const nextModel = availableModels[0];
+    if (nextModel === undefined) {
+      return;
+    }
+
+    setSelectedProvider(nextModel.provider);
+    setSelectedModel(nextModel.id);
+  }, [availableModels, providerOptions, selectedProvider]);
+
+  useEffect(() => {
+    if (selectedProvider.length === 0 || selectedModel.length === 0) {
+      return;
+    }
+
+    if (modelOptions.some((model) => model.id === selectedModel)) {
+      return;
+    }
+
+    const nextModel = modelOptions[0];
+    if (nextModel === undefined) {
+      return;
+    }
+
+    setSelectedModel(nextModel.id);
+  }, [modelOptions, selectedModel, selectedProvider]);
+
   const surfaceClass = 'border-[#d7ded3] bg-white/90 shadow-sm';
   const pageClass = 'bg-[#eef3ea] text-zinc-950';
   const mutedTextClass = 'text-zinc-700';

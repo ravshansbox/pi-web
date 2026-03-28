@@ -183,6 +183,27 @@ function toChatMessages(messages: AgentMessage[]): ChatMessage[] {
   });
 }
 
+function getLastAssistantModel(messages: AgentMessage[], fallbackModel: ModelOption) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== 'assistant') {
+      continue;
+    }
+
+    if ('provider' in message && 'model' in message && typeof message.provider === 'string' && typeof message.model === 'string') {
+      return {
+        provider: message.provider,
+        model: message.model,
+      };
+    }
+  }
+
+  return {
+    provider: fallbackModel.provider,
+    model: fallbackModel.id,
+  };
+}
+
 const httpServer = createServer();
 const wsServer = new WebSocketServer({ server: httpServer });
 
@@ -323,12 +344,18 @@ wsServer.on('connection', async (socket) => {
         const { absolutePath } = resolveHomePath(selectedFolder);
         await connectSession(SessionManager.create(absolutePath));
         currentSessions = await listSessions(selectedFolder);
+        const sessionMessages = session?.messages ?? [];
+        const lastAssistantModel = getLastAssistantModel(sessionMessages, {
+          provider: selectedModel.provider,
+          id: selectedModel.id,
+          label: '',
+        });
         send({
           type: 'session_selected',
           session: selectedSession || session?.sessionId || '',
-          messages: toChatMessages(session?.messages ?? []),
-          provider: selectedModel.provider,
-          model: selectedModel.id,
+          messages: toChatMessages(sessionMessages),
+          provider: lastAssistantModel.provider,
+          model: lastAssistantModel.model,
           thinkingLevel: session?.thinkingLevel || 'medium',
           availableThinkingLevels: session?.getAvailableThinkingLevels() || ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
           sessions: currentSessions,
@@ -357,12 +384,18 @@ wsServer.on('connection', async (socket) => {
 
         await connectSession(SessionManager.open(nextSession.path));
         currentSessions = await listSessions(selectedFolder);
+        const sessionMessages = session?.messages ?? [];
+        const lastAssistantModel = getLastAssistantModel(sessionMessages, {
+          provider: selectedModel.provider,
+          id: selectedModel.id,
+          label: '',
+        });
         send({
           type: 'session_selected',
           session: selectedSession || message.session,
-          messages: toChatMessages(session?.messages ?? []),
-          provider: selectedModel.provider,
-          model: selectedModel.id,
+          messages: toChatMessages(sessionMessages),
+          provider: lastAssistantModel.provider,
+          model: lastAssistantModel.model,
           thinkingLevel: session?.thinkingLevel || 'medium',
           availableThinkingLevels: session?.getAvailableThinkingLevels() || ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
           sessions: currentSessions,
