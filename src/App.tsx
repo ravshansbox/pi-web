@@ -285,9 +285,9 @@ export function App() {
   const surfaceClass = 'border-[#d7ded3] bg-white/90 shadow-sm';
   const pageClass = 'bg-[#eef3ea] text-zinc-950';
   const mutedTextClass = 'text-zinc-700';
-  const inputClass = 'border-[#cfd8ca] bg-white text-zinc-950 focus:border-[#7b8d80] font-[inherit]';
-  const secondaryButtonClass = 'border-[#cfd8ca] text-zinc-700 disabled:opacity-40 font-[inherit]';
-  const primaryButtonClass = 'bg-[#8fa892] text-zinc-950 disabled:bg-[#cfd8ca] disabled:text-[#6f7c73] font-[inherit]';
+  const inputClass = 'border-[#cfd8ca] bg-white text-zinc-950 focus:border-[#7b8d80] hover:bg-[#f3f6f0] font-[inherit]';
+  const secondaryButtonClass = 'border-[#cfd8ca] text-zinc-700 hover:bg-[#f3f6f0] disabled:opacity-40 font-[inherit]';
+  const primaryButtonClass = 'bg-[#8fa892] text-zinc-950 hover:bg-[#9ab09c] disabled:bg-[#cfd8ca] disabled:text-[#6f7c73] font-[inherit]';
 
   const statusText = useMemo(() => {
     if (connectionState === 'connecting') {
@@ -296,10 +296,6 @@ export function App() {
 
     if (connectionState === 'disconnected') {
       return 'Disconnected from local pi backend.';
-    }
-
-    if (runState === 'running') {
-      return 'pi is responding…';
     }
 
     if (runState === 'error' && error) {
@@ -365,11 +361,27 @@ export function App() {
     socketRef.current?.send(JSON.stringify({ type: 'list_folders', path }));
   };
 
+  const clearRestoreState = () => {
+    restoreRef.current = { folder: '', session: '' };
+  };
+
   const chooseFolder = (path: string) => {
+    clearRestoreState();
     socketRef.current?.send(JSON.stringify({ type: 'set_folder', path }));
   };
 
+  const createSession = () => {
+    clearRestoreState();
+    socketRef.current?.send(JSON.stringify({ type: 'create_session' }));
+  };
+
+  const chooseSession = (session: string) => {
+    clearRestoreState();
+    socketRef.current?.send(JSON.stringify({ type: 'set_session', session }));
+  };
+
   const resetFolderSelection = () => {
+    clearRestoreState();
     socketRef.current?.send(JSON.stringify({ type: 'clear_folder' }));
     setSelectedFolder('');
     setSelectedSession('');
@@ -381,6 +393,7 @@ export function App() {
   };
 
   const resetSessionSelection = () => {
+    clearRestoreState();
     socketRef.current?.send(JSON.stringify({ type: 'clear_session' }));
     setSelectedSession('');
     setMessages([]);
@@ -401,36 +414,39 @@ export function App() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm">{browserPath || 'Home'}</p>
-                {canGoUp ? (
-                  <button
-                    type="button"
-                    onClick={() => browseFolder(parentPath)}
-                    className={`rounded-xl border px-3 py-2 text-sm transition ${secondaryButtonClass}`}
-                  >
-                    Up
-                  </button>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {canGoUp ? (
+                    <button
+                      type="button"
+                      onClick={() => browseFolder(parentPath)}
+                      className={`rounded-xl border px-3 py-2 text-sm transition ${secondaryButtonClass}`}
+                    >
+                      Up
+                    </button>
+                  ) : null}
+                  {browserPath ? (
+                    <button
+                      type="button"
+                      onClick={() => chooseFolder(browserPath)}
+                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${primaryButtonClass}`}
+                    >
+                      Use
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-2">
                 {folders.length > 0 ? (
                   folders.map((folder) => (
-                    <div key={folder.path} className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => browseFolder(folder.path)}
-                        className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${inputClass}`}
-                      >
-                        {folder.name}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => chooseFolder(folder.path)}
-                        className={`rounded-xl px-3 py-2 text-base font-medium transition sm:text-sm ${primaryButtonClass}`}
-                      >
-                        Use
-                      </button>
-                    </div>
+                    <button
+                      key={folder.path}
+                      type="button"
+                      onClick={() => browseFolder(folder.path)}
+                      className={`block w-full rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm ${inputClass}`}
+                    >
+                      {folder.name}
+                    </button>
                   ))
                 ) : (
                   <p className={`text-sm ${mutedTextClass}`}>No folders found in {currentFolderName}.</p>
@@ -455,7 +471,7 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => socketRef.current?.send(JSON.stringify({ type: 'create_session' }))}
+                    onClick={createSession}
                     className={`rounded-xl px-3 py-2 text-sm font-medium transition ${primaryButtonClass}`}
                     disabled={connectionState !== 'connected' || runState === 'running'}
                   >
@@ -470,7 +486,7 @@ export function App() {
                     <button
                       key={session.id}
                       type="button"
-                      onClick={() => socketRef.current?.send(JSON.stringify({ type: 'set_session', session: session.id }))}
+                      onClick={() => chooseSession(session.id)}
                       className={`block w-full rounded-xl border px-3 py-2 text-left text-base transition sm:text-sm font-[inherit] ${
                         selectedSession === session.id ? primaryButtonClass : inputClass
                       }`}
