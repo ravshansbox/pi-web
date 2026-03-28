@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -256,9 +256,14 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages]);
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: 'end' });
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, selectedSession]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -409,7 +414,7 @@ export function App() {
 
   return (
     <main className={`min-h-dvh px-4 py-4 font-['JetBrains_Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation_Mono','Courier_New',monospace] sm:px-6 sm:py-10 ${pageClass}`}>
-      <div className="mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col gap-4 sm:min-h-[calc(100dvh-5rem)] sm:gap-6">
+      <div className="mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-3xl min-h-0 flex-col gap-4 sm:min-h-[calc(100dvh-5rem)] sm:gap-6">
         {!selectedFolder ? (
           <section className={`rounded-2xl border p-4 sm:p-5 ${surfaceClass}`}>
             <div className="space-y-3">
@@ -503,9 +508,10 @@ export function App() {
         ) : null}
 
         {selectedSession ? (
-          <>
+          <div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
             <section className={`flex-1 rounded-2xl border p-4 sm:p-5 ${surfaceClass}`}>
-              <div className="mb-4 flex justify-end">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <p className={`min-w-0 truncate text-sm ${mutedTextClass}`}>{selectedFolder}</p>
                 <button
                   type="button"
                   onClick={resetSessionSelection}
@@ -517,7 +523,6 @@ export function App() {
               {messages.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   {messages.map((message) => {
-                    const isLastMessage = message.id === messages.at(-1)?.id;
                     const messageClass =
                       message.role === 'user'
                         ? 'self-end bg-[#b8c8b8] text-zinc-950'
@@ -526,13 +531,14 @@ export function App() {
                           : 'self-start bg-[#f3f6f0] text-zinc-950';
 
                     return (
-                      <article key={message.id} className="flex" ref={isLastMessage ? messagesEndRef : undefined}>
+                      <article key={message.id} className="flex">
                         <div className={`w-full rounded-2xl px-4 py-3 text-sm leading-6 ${messageClass}`}>
                           <pre className="whitespace-pre-wrap break-words font-[inherit]">{message.text || '…'}</pre>
                         </div>
                       </article>
                     );
                   })}
+                  <div ref={messagesEndRef} />
                 </div>
               ) : (
                 <p className={`text-sm leading-6 ${mutedTextClass}`}>
@@ -625,7 +631,7 @@ export function App() {
                 </form>
               </div>
             </section>
-          </>
+          </div>
         ) : null}
       </div>
     </main>

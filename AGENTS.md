@@ -15,4 +15,5 @@
 - For iPhone and small screens, prefer stacked controls, 16px input text, adequate tap targets, `dvh`, and safe-area-aware spacing.
 - This project is a web UI for pi-agent.
 - Prefer using Tailwind classes rather than adding CSS declarations.
+- If a proposed fix does not work, revert that ineffective change instead of accumulating redundant changes.
 - When the user says "remember" or "note", update this `AGENTS.md` file with the instruction to retain it for future work.
