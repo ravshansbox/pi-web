@@ -921,7 +921,7 @@ export default function App() {
             )?.cwd ?? selectedProjectCwdRef.current)
           : (selectedProjectCwdRef.current ?? sessionsRef.current[0]?.cwd);
         if (!file && !cwd) return;
-        if (startSession(cwd, file ?? null)) {
+        if (startSession(cwd ?? undefined, file ?? null)) {
           scheduleRequestModels();
           requestStats();
         }
@@ -1279,8 +1279,11 @@ export default function App() {
     switch (event.type) {
       case 'response': {
         if (event.command === 'get_available_models') {
-          const models: Model[] = (event.data?.models ?? [])
-            .map((model: unknown) => normaliseModel(model))
+          const modelPayloads: unknown[] = Array.isArray(event.data?.models)
+            ? event.data.models
+            : [];
+          const models: Model[] = modelPayloads
+            .map((model) => normaliseModel(model))
             .filter((model): model is Model => model != null);
           if (models.length > 0) {
             setAvailableModels(models);
