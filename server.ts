@@ -1,13 +1,33 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import {
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RpcSession } from './rpc.js';
-import { listSessions, readSessionMessages, getSessionFilePath, type AgentKind } from './sessions.js';
+import {
+  listSessions,
+  readSessionMessages,
+  getSessionFilePath,
+  type AgentKind,
+} from './sessions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -32,7 +52,11 @@ function getArg(name: string): string | undefined {
   const pair = process.argv.find((a) => a.startsWith(flag));
   if (pair) return pair.slice(flag.length);
   const idx = process.argv.indexOf(`--${name}`);
-  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--'))
+  if (
+    idx !== -1 &&
+    process.argv[idx + 1] &&
+    !process.argv[idx + 1].startsWith('--')
+  )
     return process.argv[idx + 1];
   return undefined;
 }
@@ -44,7 +68,10 @@ function parseAgent(value?: string): AgentKind {
   process.exit(1);
 }
 
-function getAgentCommand(agent: AgentKind): { command: string; args: string[] } {
+function getAgentCommand(agent: AgentKind): {
+  command: string;
+  args: string[];
+} {
   return agent === 'omp'
     ? { command: 'npx', args: ['-y', '@oh-my-pi/pi-coding-agent@latest'] }
     : { command: 'npx', args: ['-y', '@mariozechner/pi-coding-agent@latest'] };
@@ -57,29 +84,37 @@ const AGENT_CMD = getAgentCommand(AGENT);
 const IDLE_SESSION_TTL_MS = 60_000;
 const isWatchMode =
   process.argv.includes('--watch') ||
-  process.execArgv.some((arg) => arg === '--watch' || arg.startsWith('--watch-'));
+  process.execArgv.some(
+    (arg) => arg === '--watch' || arg.startsWith('--watch-'),
+  );
 const isDev = isWatchMode;
 
-const distDirCandidates = [join(__dirname, 'dist'), join(__dirname, '..', '..', 'dist')];
+const distDirCandidates = [
+  join(__dirname, 'dist'),
+  join(__dirname, '..', '..', 'dist'),
+];
 const distDir =
-  distDirCandidates.find((candidate) => existsSync(join(candidate, 'index.html'))) ??
-  distDirCandidates[0];
+  distDirCandidates.find((candidate) =>
+    existsSync(join(candidate, 'index.html')),
+  ) ?? distDirCandidates[0];
 const htmlPath = join(distDir, 'index.html');
-const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
+const htmlCache =
+  isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
 const HOME_DIR = resolve(homedir() || '/');
-const SESSION_ROOT = resolve(join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'));
+const SESSION_ROOT = resolve(
+  join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'),
+);
 
-type FolderEntry = {
-  name: string;
-  path: string;
-};
+type FolderEntry = { name: string; path: string };
 
 function isWithinRoot(path: string, root: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-async function listFolders(cwdQuery?: string | null): Promise<{
+async function listFolders(
+  cwdQuery?: string | null,
+): Promise<{
   cwd: string;
   root: string;
   folders: FolderEntry[];
@@ -92,10 +127,7 @@ async function listFolders(cwdQuery?: string | null): Promise<{
     const entries = await readdir(cwd, { withFileTypes: true });
     const folders = entries
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-      .map((entry) => ({
-        name: entry.name,
-        path: join(cwd, entry.name),
-      }))
+      .map((entry) => ({ name: entry.name, path: join(cwd, entry.name) }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return { cwd, root: HOME_DIR, folders };
@@ -124,7 +156,9 @@ const contentTypes: Record<string, string> = {
 
 function serveFile(filePath: string, res: any) {
   const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+  res.writeHead(200, {
+    'Content-Type': contentTypes[ext] || 'application/octet-stream',
+  });
   createReadStream(filePath).pipe(res);
 }
 
@@ -238,13 +272,21 @@ const server = createServer((req, res) => {
       .replace(/^(\.\.[/\\])+/, '')
       .replace(/^[/\\]+/, '');
     const filePath = resolve(join(distDir, safePath));
-    if (isWithinRoot(filePath, distDir) && existsSync(filePath) && statSync(filePath).isFile()) {
+    if (
+      isWithinRoot(filePath, distDir) &&
+      existsSync(filePath) &&
+      statSync(filePath).isFile()
+    ) {
       serveFile(filePath, res);
       return;
     }
 
     const acceptsHtml = (req.headers.accept ?? '').includes('text/html');
-    if (req.method === 'GET' && !url.pathname.startsWith('/api/') && acceptsHtml) {
+    if (
+      req.method === 'GET' &&
+      !url.pathname.startsWith('/api/') &&
+      acceptsHtml
+    ) {
       if (!existsSync(htmlPath)) {
         res.writeHead(503, { 'Content-Type': 'text/plain' });
         res.end('frontend not built. run: npm run build');
@@ -286,18 +328,23 @@ function getSocketClientId(ws: WebSocket): string {
   return next;
 }
 
-function buildSessionKey(cwd: string, sessionFile: string | null, scope?: string): string {
+function buildSessionKey(
+  cwd: string,
+  sessionFile: string | null,
+  scope?: string,
+): string {
   if (sessionFile) return `${cwd}::${basename(sessionFile)}`;
   return `${cwd}::__new__::${scope ?? 'shared'}`;
 }
 
-function getSessionRuntimeStatus(cwd: string, sessionFile: string): {
-  isActive: boolean;
-  isWorking: boolean;
-} {
+function getSessionRuntimeStatus(
+  cwd: string,
+  sessionFile: string,
+): { isActive: boolean; isWorking: boolean } {
   const key = buildSessionKey(resolve(cwd), basename(sessionFile));
   const managed = rpcSessions.get(key);
-  if (!managed || managed.isClosing) return { isActive: false, isWorking: false };
+  if (!managed || managed.isClosing)
+    return { isActive: false, isWorking: false };
   return {
     isActive: managed.isAgentRunning || managed.clients.size > 0,
     isWorking: managed.isAgentRunning,
@@ -341,7 +388,10 @@ function closeManagedSession(managed: ManagedRpcSession) {
   managed.rpc.kill();
 }
 
-function findManagedSessionByFile(cwd: string, sessionFile: string): ManagedRpcSession | null {
+function findManagedSessionByFile(
+  cwd: string,
+  sessionFile: string,
+): ManagedRpcSession | null {
   const key = buildSessionKey(resolve(cwd), basename(sessionFile));
   const direct = rpcSessions.get(key);
   if (direct && !direct.isClosing) return direct;
@@ -426,7 +476,9 @@ function createManagedSession(
   sessionFile: string | null,
   initialKey: string,
 ): ManagedRpcSession {
-  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
+  const sessionPath = sessionFile
+    ? getSessionFilePath(cwd, sessionFile, AGENT)
+    : undefined;
   let managed: ManagedRpcSession | null = null;
 
   const rpc = new RpcSession({
@@ -449,7 +501,10 @@ function createManagedSession(
     },
     onError: (error) => {
       if (!managed) return;
-      logServerError(`rpc session error (${managed.cwd}${managed.sessionFile ? `/${managed.sessionFile}` : ''})`, error);
+      logServerError(
+        `rpc session error (${managed.cwd}${managed.sessionFile ? `/${managed.sessionFile}` : ''})`,
+        error,
+      );
       broadcast(managed, { type: 'error', message: error });
     },
     onExit: (code) => {
@@ -460,7 +515,8 @@ function createManagedSession(
       unregisterManagedSession(managed);
       broadcast(managed, { type: 'session_ended', code });
       for (const client of managed.clients) {
-        if (socketBindings.get(client) === managed) socketBindings.delete(client);
+        if (socketBindings.get(client) === managed)
+          socketBindings.delete(client);
       }
       managed.clients.clear();
     },
@@ -515,7 +571,8 @@ wss.on('connection', (ws: WebSocket) => {
       detachSocket(ws);
 
       let managed = rpcSessions.get(key);
-      if (!managed || managed.isClosing) managed = createManagedSession(cwd, sessionFile, key);
+      if (!managed || managed.isClosing)
+        managed = createManagedSession(cwd, sessionFile, key);
 
       managed.clients.add(ws);
       clearIdleCleanupTimer(managed);
@@ -537,8 +594,11 @@ wss.on('connection', (ws: WebSocket) => {
 
       const command = msg.command;
       const isPromptLikeCommand =
-        command?.type === 'prompt' || command?.type === 'steer' || command?.type === 'follow_up';
-      const hasImages = Array.isArray(command?.images) && command.images.length > 0;
+        command?.type === 'prompt' ||
+        command?.type === 'steer' ||
+        command?.type === 'follow_up';
+      const hasImages =
+        Array.isArray(command?.images) && command.images.length > 0;
       if (
         isPromptLikeCommand &&
         hasImages &&

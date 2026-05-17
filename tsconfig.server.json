@@ -9,6 +9,6 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["server.ts", "rpc.ts", "sessions.ts"],
-  "exclude": []
+  "exclude": [],
+  "include": ["server.ts", "rpc.ts", "sessions.ts"]
 }

@@ -47,7 +47,9 @@ function cwdToSessionDir(cwd: string, agent: AgentKind): string {
       normalisedCwd.startsWith(`${HOME_DIR}/`) ||
       normalisedCwd.startsWith(`${HOME_DIR}\\`)
     ) {
-      const relative = normalisedCwd.slice(HOME_DIR.length).replace(/^[/\\]/, '');
+      const relative = normalisedCwd
+        .slice(HOME_DIR.length)
+        .replace(/^[/\\]/, '');
       return `-${relative.replace(/[/\\:]/g, '-')}`;
     }
   }
@@ -56,7 +58,11 @@ function cwdToSessionDir(cwd: string, agent: AgentKind): string {
   return `--${encoded}--`;
 }
 
-export function getSessionFilePath(cwd: string, filename: string, agent: AgentKind = 'pi'): string {
+export function getSessionFilePath(
+  cwd: string,
+  filename: string,
+  agent: AgentKind = 'pi',
+): string {
   return join(getSessionDir(agent), cwdToSessionDir(cwd, agent), filename);
 }
 
@@ -72,7 +78,9 @@ export async function listSessions(opts: {
   try {
     const cwdDirs = await readdir(sessionDir, { withFileTypes: true });
     const targetDirs = cwd
-      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent))
+      ? cwdDirs.filter(
+          (d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent),
+        )
       : cwdDirs.filter((d) => d.isDirectory());
 
     for (const dir of targetDirs) {
@@ -102,17 +110,15 @@ export async function listSessions(opts: {
   return results.slice(0, limit);
 }
 
-export async function readSessionMessages(filePath: string): Promise<ParsedMessage[]> {
+export async function readSessionMessages(
+  filePath: string,
+): Promise<ParsedMessage[]> {
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const messages: ParsedMessage[] = [];
   const toolResults = new Map<
     string,
-    {
-      content: unknown;
-      details?: unknown;
-      isError?: boolean;
-    }
+    { content: unknown; details?: unknown; isError?: boolean }
   >();
 
   try {
@@ -175,7 +181,9 @@ export async function readSessionMessages(filePath: string): Promise<ParsedMessa
   return messages;
 }
 
-async function readSessionHeader(filePath: string): Promise<SessionSummary | null> {
+async function readSessionHeader(
+  filePath: string,
+): Promise<SessionSummary | null> {
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
