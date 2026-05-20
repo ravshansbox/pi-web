@@ -73,8 +73,8 @@ function getAgentCommand(agent: AgentKind): {
   args: string[];
 } {
   return agent === 'omp'
-    ? { command: 'npx', args: ['-y', '@oh-my-pi/pi-coding-agent@latest'] }
-    : { command: 'npx', args: ['-y', '@mariozechner/pi-coding-agent@latest'] };
+    ? { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] }
+    : { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
 }
 
 const AGENT = parseAgent(getArg('agent'));
