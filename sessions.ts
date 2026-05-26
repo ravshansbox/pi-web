@@ -25,7 +25,7 @@ export interface SessionSummary {
 export interface ParsedMessage {
   id: string;
   role: string;
-  content: any;
+  content: unknown;
   timestamp?: string;
   model?: string;
   provider?: string;
@@ -47,9 +47,7 @@ function cwdToSessionDir(cwd: string, agent: AgentKind): string {
       normalisedCwd.startsWith(`${HOME_DIR}/`) ||
       normalisedCwd.startsWith(`${HOME_DIR}\\`)
     ) {
-      const relative = normalisedCwd
-        .slice(HOME_DIR.length)
-        .replace(/^[/\\]/, '');
+      const relative = normalisedCwd.slice(HOME_DIR.length).replace(/^[/\\]/, '');
       return `-${relative.replace(/[/\\:]/g, '-')}`;
     }
   }
@@ -58,11 +56,7 @@ function cwdToSessionDir(cwd: string, agent: AgentKind): string {
   return `--${encoded}--`;
 }
 
-export function getSessionFilePath(
-  cwd: string,
-  filename: string,
-  agent: AgentKind = 'pi',
-): string {
+export function getSessionFilePath(cwd: string, filename: string, agent: AgentKind = 'pi'): string {
   return join(getSessionDir(agent), cwdToSessionDir(cwd, agent), filename);
 }
 
@@ -78,9 +72,7 @@ export async function listSessions(opts: {
   try {
     const cwdDirs = await readdir(sessionDir, { withFileTypes: true });
     const targetDirs = cwd
-      ? cwdDirs.filter(
-          (d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent),
-        )
+      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent))
       : cwdDirs.filter((d) => d.isDirectory());
 
     for (const dir of targetDirs) {
@@ -100,26 +92,25 @@ export async function listSessions(opts: {
         try {
           const info = await readSessionHeader(filePath);
           if (info) results.push(info);
-        } catch {}
+        } catch {
+          // unreadable session file — skip
+        }
       }
       if (results.length >= limit) break;
     }
-  } catch {}
+  } catch {
+    // session directory does not exist or is unreadable
+  }
 
   results.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return results.slice(0, limit);
 }
 
-export async function readSessionMessages(
-  filePath: string,
-): Promise<ParsedMessage[]> {
+export async function readSessionMessages(filePath: string): Promise<ParsedMessage[]> {
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const messages: ParsedMessage[] = [];
-  const toolResults = new Map<
-    string,
-    { content: unknown; details?: unknown; isError?: boolean }
-  >();
+  const toolResults = new Map<string, { content: unknown; details?: unknown; isError?: boolean }>();
 
   try {
     for await (const line of rl) {
@@ -155,7 +146,9 @@ export async function readSessionMessages(
           provider: msg.provider,
           usage: msg.usage,
         });
-      } catch {}
+      } catch {
+        // malformed JSON line — skip
+      }
     }
   } finally {
     rl.close();
@@ -181,13 +174,11 @@ export async function readSessionMessages(
   return messages;
 }
 
-async function readSessionHeader(
-  filePath: string,
-): Promise<SessionSummary | null> {
+async function readSessionHeader(filePath: string): Promise<SessionSummary | null> {
   const stream = createReadStream(filePath, { encoding: 'utf8' });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
-  let header: any = null;
+  let header: Record<string, unknown> | null = null;
   let firstPrompt: string | undefined;
   let messageCount = 0;
 
@@ -212,11 +203,15 @@ async function readSessionHeader(
           if (typeof content === 'string') {
             firstPrompt = content.slice(0, 120);
           } else if (Array.isArray(content)) {
-            const text = content.find((c: any) => c.type === 'text');
+            const text = content.find((c: unknown) => (c as { type?: string }).type === 'text') as
+              | { text?: string }
+              | undefined;
             if (text?.text) firstPrompt = text.text.slice(0, 120);
           }
         }
-      } catch {}
+      } catch {
+        // malformed JSON line — skip
+      }
     }
   } finally {
     rl.close();
@@ -226,10 +221,10 @@ async function readSessionHeader(
   if (!header) return null;
 
   return {
-    id: header.id,
+    id: typeof header.id === 'string' ? header.id : '',
     file: basename(filePath),
-    cwd: header.cwd || '',
-    timestamp: header.timestamp || '',
+    cwd: typeof header.cwd === 'string' ? header.cwd : '',
+    timestamp: typeof header.timestamp === 'string' ? header.timestamp : '',
     firstPrompt,
     messageCount,
   };

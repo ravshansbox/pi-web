@@ -47,7 +47,9 @@ export class RpcSession {
         if (line.length > 0) {
           try {
             this.opts.onEvent(JSON.parse(line));
-          } catch {}
+          } catch {
+            // malformed JSON line — skip
+          }
         }
         idx = this.buffer.indexOf('\n');
       }
@@ -79,8 +81,12 @@ export class RpcSession {
       setTimeout(() => {
         try {
           this.proc.kill('SIGKILL');
-        } catch {}
+        } catch {
+          // process already gone
+        }
       }, 2000);
-    } catch {}
+    } catch {
+      // process already gone
+    }
   }
 }

@@ -44,7 +44,7 @@ type MessageEntry = {
 type ParsedMessage = {
   id: string;
   role: string;
-  content: any;
+  content: unknown;
   timestamp?: string;
   model?: string;
   provider?: string;
@@ -85,20 +85,11 @@ type SessionStats = {
 };
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
-const THINKING_LEVELS: ThinkingLevel[] = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-];
+const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const EXTERNAL_SESSION_SYNC_INTERVAL_MS = 1200;
 
 function asHomeRelativePath(cwd: string): string {
-  return cwd
-    .replace(/^\/Users\/[^/]+(?=\/|$)/, '~')
-    .replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+  return cwd.replace(/^\/Users\/[^/]+(?=\/|$)/, '~').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
 }
 
 function shortenCwd(cwd: string): string {
@@ -141,9 +132,7 @@ function projectsRoutePath(cwd?: string | null): string {
 
 function normaliseThinkingLevel(value: unknown): ThinkingLevel | null {
   if (typeof value !== 'string') return null;
-  return THINKING_LEVELS.includes(value as ThinkingLevel)
-    ? (value as ThinkingLevel)
-    : null;
+  return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : null;
 }
 
 function normaliseModel(value: unknown): Model | null {
@@ -156,8 +145,7 @@ function normaliseModel(value: unknown): Model | null {
   if (!id || !provider) return null;
 
   const contextWindow =
-    typeof record.contextWindow === 'number' &&
-    Number.isFinite(record.contextWindow)
+    typeof record.contextWindow === 'number' && Number.isFinite(record.contextWindow)
       ? record.contextWindow
       : undefined;
   const reasoning =
@@ -215,6 +203,7 @@ function shouldAutoFocusInput(): boolean {
 }
 
 const ANSI_ESCAPE_PATTERN =
+  // eslint-disable-next-line no-control-regex
   /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -255,21 +244,14 @@ function sanitizeBinaryOutput(value: string): string {
 
 function normaliseToolOutputText(value: string): string {
   return replaceTabs(
-    sanitizeBinaryOutput(value.replace(ANSI_ESCAPE_PATTERN, '')).replace(
-      /\r/g,
-      '',
-    ),
+    sanitizeBinaryOutput(value.replace(ANSI_ESCAPE_PATTERN, '')).replace(/\r/g, ''),
   );
 }
 
 function extractToolText(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  if (
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    typeof value === 'bigint'
-  ) {
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
     return String(value);
   }
 
@@ -277,8 +259,7 @@ function extractToolText(value: unknown): string {
     const textBlocks = value
       .map((item) => {
         const itemRecord = asRecord(item);
-        if (itemRecord?.type === 'text')
-          return toolString(itemRecord.text) ?? '';
+        if (itemRecord?.type === 'text') return toolString(itemRecord.text) ?? '';
         return '';
       })
       .filter(Boolean);
@@ -328,8 +309,7 @@ function getToolResultEnvelope(value: unknown): {
   const record = asRecord(value);
   if (!record) return { text: extractToolText(value) };
 
-  const contentText =
-    record.content != null ? extractToolText(record.content) : '';
+  const contentText = record.content != null ? extractToolText(record.content) : '';
   if (contentText || record.details !== undefined) {
     return { text: contentText, details: record.details };
   }
@@ -378,8 +358,7 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
 
   if (name === 'bash') {
     const command = toolString(args?.command);
-    const timeout =
-      typeof args?.timeout === 'number' ? args.timeout : undefined;
+    const timeout = typeof args?.timeout === 'number' ? args.timeout : undefined;
     const commandDisplay = command === null ? invalidArg : command || '...';
     let text = `$ ${commandDisplay}${timeout ? ` (timeout ${timeout}s)` : ''}`;
 
@@ -397,9 +376,7 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
         const outputLines = Number(truncation.outputLines) || 0;
         const totalLines = Number(truncation.totalLines) || 0;
         if (truncation.truncatedBy === 'lines') {
-          warnings.push(
-            `Truncated: showing ${outputLines} of ${totalLines} lines`,
-          );
+          warnings.push(`Truncated: showing ${outputLines} of ${totalLines} lines`);
         } else {
           warnings.push(
             `Truncated: ${outputLines} lines shown (${formatSize(Number(truncation.maxBytes) || 0)} limit)`,
@@ -414,12 +391,7 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
 
   if (name === 'read') {
     const rawPath = toolString(args?.file_path ?? args?.path);
-    const path =
-      rawPath === null
-        ? invalidArg
-        : rawPath
-          ? asHomeRelativePath(rawPath)
-          : '...';
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
     const offset = typeof args?.offset === 'number' ? args.offset : undefined;
     const limit = typeof args?.limit === 'number' ? args.limit : undefined;
     const range =
@@ -432,9 +404,8 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
 
   if (name === 'ls' || name === 'find' || name === 'grep') {
     const path = toolString(args?.path);
-    const basePath =
-      path === null ? invalidArg : asHomeRelativePath(path || '.');
-    let text = name;
+    const basePath = path === null ? invalidArg : asHomeRelativePath(path || '.');
+    let text: string;
 
     if (name === 'find') {
       const pattern = toolString(args?.pattern);
@@ -463,24 +434,17 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
 
     if (name === 'ls') {
       const entryLimit =
-        typeof details?.entryLimitReached === 'number'
-          ? details.entryLimitReached
-          : undefined;
+        typeof details?.entryLimitReached === 'number' ? details.entryLimitReached : undefined;
       if (entryLimit) warnings.push(`${entryLimit} entries limit`);
     } else if (name === 'find') {
       const resultLimit =
-        typeof details?.resultLimitReached === 'number'
-          ? details.resultLimitReached
-          : undefined;
+        typeof details?.resultLimitReached === 'number' ? details.resultLimitReached : undefined;
       if (resultLimit) warnings.push(`${resultLimit} results limit`);
     } else if (name === 'grep') {
       const matchLimit =
-        typeof details?.matchLimitReached === 'number'
-          ? details.matchLimitReached
-          : undefined;
+        typeof details?.matchLimitReached === 'number' ? details.matchLimitReached : undefined;
       if (matchLimit) warnings.push(`${matchLimit} matches limit`);
-      if (Boolean(details?.linesTruncated))
-        warnings.push('some lines truncated');
+      if (details?.linesTruncated) warnings.push('some lines truncated');
     }
 
     if (truncation?.truncated) {
@@ -497,12 +461,7 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
   if (name === 'write') {
     const rawPath = toolString(args?.file_path ?? args?.path);
     const content = toolString(args?.content);
-    const path =
-      rawPath === null
-        ? invalidArg
-        : rawPath
-          ? asHomeRelativePath(rawPath)
-          : '...';
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
     let text = `write ${path}`;
 
     if (content === null) {
@@ -520,15 +479,9 @@ function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
 
   if (name === 'edit') {
     const rawPath = toolString(args?.file_path ?? args?.path);
-    const path =
-      rawPath === null
-        ? invalidArg
-        : rawPath
-          ? asHomeRelativePath(rawPath)
-          : '...';
+    const path = rawPath === null ? invalidArg : rawPath ? asHomeRelativePath(rawPath) : '...';
     const firstChangedLine = details?.firstChangedLine;
-    const lineSuffix =
-      typeof firstChangedLine === 'number' ? `:${firstChangedLine}` : '';
+    const lineSuffix = typeof firstChangedLine === 'number' ? `:${firstChangedLine}` : '';
     const header = `edit ${path}${lineSuffix}`;
 
     const diff = typeof details?.diff === 'string' ? details.diff : '';
@@ -578,22 +531,16 @@ export default function App() {
   const [folderBrowserCwd, setFolderBrowserCwd] = useState<string | null>(
     getInitialFolderBrowserCwdFromUrl,
   );
-  const [folderBrowserRoot, setFolderBrowserRoot] = useState<string | null>(
-    null,
-  );
+  const [folderBrowserRoot, setFolderBrowserRoot] = useState<string | null>(null);
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   const [isFolderBrowserLoading, setIsFolderBrowserLoading] = useState(false);
-  const [folderBrowserError, setFolderBrowserError] = useState<string | null>(
-    null,
-  );
+  const [folderBrowserError, setFolderBrowserError] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModel, setCurrentModel] = useState<Model | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off');
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [promptQueue, setPromptQueue] = useState<QueuedPrompt[]>([]);
-  const [composerAttachments, setComposerAttachments] = useState<
-    ComposerAttachment[]
-  >([]);
+  const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null);
   const [hasLoadedSessions, setHasLoadedSessions] = useState(false);
@@ -605,13 +552,9 @@ export default function App() {
   const projectIdParam = pathSegments[0];
   const sessionIdParam = pathSegments[1];
   const hasExtraPathSegments = pathSegments.length > 2;
-  const selectedProjectCwd = useMemo(
-    () => decodeRouteParam(projectIdParam),
-    [projectIdParam],
-  );
+  const selectedProjectCwd = useMemo(() => decodeRouteParam(projectIdParam), [projectIdParam]);
   const activeSessionFile = useMemo(() => {
-    if (sessionIdParam == null || sessionIdParam === NEW_SESSION_ROUTE_PARAM)
-      return null;
+    if (sessionIdParam == null || sessionIdParam === NEW_SESSION_ROUTE_PARAM) return null;
     return decodeRouteParam(sessionIdParam);
   }, [sessionIdParam]);
   const isProjectsView = pathSegments.length === 0;
@@ -641,9 +584,9 @@ export default function App() {
     cwd?: string;
     sessionFile?: string | null;
   } | null>(null);
-  const sessionRouteSyncAttemptsRef = useRef<
-    Map<string, { cwd: string; attemptsLeft: number }>
-  >(new Map());
+  const sessionRouteSyncAttemptsRef = useRef<Map<string, { cwd: string; attemptsLeft: number }>>(
+    new Map(),
+  );
   const isNewSessionRouteRef = useRef(false);
   const activeRpcSessionRef = useRef<{
     cwd?: string;
@@ -691,6 +634,9 @@ export default function App() {
 
   useEffect(() => {
     if (modelSupportsAttachments || composerAttachments.length === 0) return;
+    // Clearing attachments synchronously is intentional: we must purge them
+    // before the next render to avoid sending unsupported content to the model.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setComposerAttachments([]);
     setComposerNotice(
       'Attached files were removed because the selected model does not support file attachments.',
@@ -700,17 +646,16 @@ export default function App() {
 
   useEffect(() => {
     if (!isProjectsView) return;
-    setFolderBrowserCwd((prev) =>
-      prev === folderCwdFromQuery ? prev : folderCwdFromQuery,
-    );
+    // Synchronising derived URL state into local state is intentional here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFolderBrowserCwd((prev) => (prev === folderCwdFromQuery ? prev : folderCwdFromQuery));
   }, [folderCwdFromQuery, isProjectsView]);
 
   useEffect(() => {
     connect();
     loadSessions();
     return () => {
-      if (reconnectTimerRef.current)
-        window.clearTimeout(reconnectTimerRef.current);
+      if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
       if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
       if (externalSessionSyncTimerRef.current)
         window.clearInterval(externalSessionSyncTimerRef.current);
@@ -720,6 +665,7 @@ export default function App() {
       externalSessionSyncInFlightRef.current = false;
       wsRef.current?.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- connect is stable, mount-only effect
   }, []);
 
   useEffect(() => {
@@ -740,8 +686,7 @@ export default function App() {
   useEffect(() => {
     if (!threadRef.current) return;
     requestAnimationFrame(() => {
-      if (threadRef.current)
-        threadRef.current.scrollTop = threadRef.current.scrollHeight;
+      if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
     });
   }, [
     currentMessages,
@@ -764,18 +709,13 @@ export default function App() {
       if (!input || input.disabled) return;
       input.focus();
     });
-  }, [
-    activeSessionFile,
-    hasActiveSession,
-    isHistoryView,
-    isNewSessionRoute,
-    selectedProjectCwd,
-  ]);
+  }, [activeSessionFile, hasActiveSession, isHistoryView, isNewSessionRoute, selectedProjectCwd]);
 
   useEffect(() => {
     if (isHistoryView) return;
     if (!hasActiveSessionRef.current) return;
     detachSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- detachSession is stable
   }, [isHistoryView]);
 
   useEffect(() => {
@@ -790,8 +730,7 @@ export default function App() {
   }, [navigate, projectIdParam, selectedProjectCwd]);
 
   useEffect(() => {
-    if (projectIdParam == null || sessionIdParam == null || isNewSessionRoute)
-      return;
+    if (projectIdParam == null || sessionIdParam == null || isNewSessionRoute) return;
     if (selectedProjectCwd == null) return;
     if (activeSessionFile == null) {
       navigate(projectRoutePath(selectedProjectCwd), { replace: true });
@@ -806,17 +745,10 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (
-      !selectedProjectCwd ||
-      !activeSessionFile ||
-      sessionIdParam == null ||
-      isNewSessionRoute
-    )
+    if (!selectedProjectCwd || !activeSessionFile || sessionIdParam == null || isNewSessionRoute)
       return;
     const exists = sessions.some(
-      (session) =>
-        session.cwd === selectedProjectCwd &&
-        session.file === activeSessionFile,
+      (session) => session.cwd === selectedProjectCwd && session.file === activeSessionFile,
     );
     if (!exists && hasLoadedSessions) {
       const activeRpcSession = activeRpcSessionRef.current;
@@ -842,16 +774,13 @@ export default function App() {
   );
 
   const effectiveSelectedProvider = useMemo(() => {
-    if (selectedProvider && providers.includes(selectedProvider))
-      return selectedProvider;
-    if (currentModel && providers.includes(currentModel.provider))
-      return currentModel.provider;
+    if (selectedProvider && providers.includes(selectedProvider)) return selectedProvider;
+    if (currentModel && providers.includes(currentModel.provider)) return currentModel.provider;
     return providers[0] ?? '';
   }, [currentModel, providers, selectedProvider]);
 
   const modelsForProvider = useMemo(
-    () =>
-      availableModels.filter((m) => m.provider === effectiveSelectedProvider),
+    () => availableModels.filter((m) => m.provider === effectiveSelectedProvider),
     [availableModels, effectiveSelectedProvider],
   );
   const selectedModelId = useMemo(() => {
@@ -865,9 +794,7 @@ export default function App() {
   }, [currentModel, effectiveSelectedProvider, modelsForProvider]);
   const thinkingLevelOptions = useMemo<ThinkingLevel[]>(() => {
     const levels =
-      currentModel?.reasoning === false
-        ? (['off'] as ThinkingLevel[])
-        : THINKING_LEVELS;
+      currentModel?.reasoning === false ? (['off'] as ThinkingLevel[]) : THINKING_LEVELS;
     return levels.includes(thinkingLevel)
       ? levels
       : [thinkingLevel, ...levels.filter((level) => level !== thinkingLevel)];
@@ -884,14 +811,14 @@ export default function App() {
 
   const sessionsForSelectedProject = useMemo(
     () =>
-      selectedProjectCwd
-        ? sessions.filter((session) => session.cwd === selectedProjectCwd)
-        : [],
+      selectedProjectCwd ? sessions.filter((session) => session.cwd === selectedProjectCwd) : [],
     [selectedProjectCwd, sessions],
   );
 
   useEffect(() => {
     if (selectedProvider !== effectiveSelectedProvider) {
+      // Synchronising derived state is intentional here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedProvider(effectiveSelectedProvider);
     }
   }, [effectiveSelectedProvider, selectedProvider]);
@@ -916,8 +843,7 @@ export default function App() {
           ? (sessionsRef.current.find(
               (s) =>
                 s.file === file &&
-                (!selectedProjectCwdRef.current ||
-                  s.cwd === selectedProjectCwdRef.current),
+                (!selectedProjectCwdRef.current || s.cwd === selectedProjectCwdRef.current),
             )?.cwd ?? selectedProjectCwdRef.current)
           : (selectedProjectCwdRef.current ?? sessionsRef.current[0]?.cwd);
         if (!file && !cwd) return;
@@ -929,7 +855,7 @@ export default function App() {
     };
 
     ws.onmessage = (event) => {
-      let msg: any;
+      let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(event.data);
       } catch {
@@ -970,7 +896,7 @@ export default function App() {
     };
   }
 
-  function wsSend(obj: any): boolean {
+  function wsSend(obj: unknown): boolean {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(obj));
       return true;
@@ -1065,10 +991,10 @@ export default function App() {
     if (!isProjectsView) return;
 
     const controller = new AbortController();
-    const query = folderBrowserCwd
-      ? `?cwd=${encodeURIComponent(folderBrowserCwd)}`
-      : '';
+    const query = folderBrowserCwd ? `?cwd=${encodeURIComponent(folderBrowserCwd)}` : '';
 
+    // Starting a fetch triggers a loading state update synchronously within the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsFolderBrowserLoading(true);
     setFolderBrowserError(null);
 
@@ -1103,12 +1029,7 @@ export default function App() {
   }, [folderBrowserCwd, isProjectsView]);
 
   useEffect(() => {
-    if (
-      !isHistoryView ||
-      !selectedProjectCwd ||
-      !activeSessionFile ||
-      isNewSessionRoute
-    ) {
+    if (!isHistoryView || !selectedProjectCwd || !activeSessionFile || isNewSessionRoute) {
       if (externalSessionSyncTimerRef.current)
         window.clearInterval(externalSessionSyncTimerRef.current);
       externalSessionSyncTimerRef.current = null;
@@ -1134,12 +1055,9 @@ export default function App() {
       externalSessionSyncAbortRef.current = controller;
 
       try {
-        await syncSessionMessagesFromDisk(
-          selectedProjectCwd,
-          activeSessionFile,
-          controller.signal,
-        );
+        await syncSessionMessagesFromDisk(selectedProjectCwd, activeSessionFile, controller.signal);
       } catch {
+        // sync errors are non-fatal
       } finally {
         if (externalSessionSyncAbortRef.current === controller)
           externalSessionSyncAbortRef.current = null;
@@ -1161,9 +1079,10 @@ export default function App() {
       externalSessionSyncAbortRef.current = null;
       externalSessionSyncInFlightRef.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncSessionMessagesFromDisk is stable
   }, [activeSessionFile, isHistoryView, isNewSessionRoute, selectedProjectCwd]);
 
-  function parseContentIntoParts(content: any, parts: MessagePart[]) {
+  function parseContentIntoParts(content: unknown, parts: MessagePart[]) {
     if (typeof content === 'string') {
       parts.push({ type: 'text', content, done: true });
       return;
@@ -1181,11 +1100,8 @@ export default function App() {
         block.type === 'tool_call' ||
         block.type === 'tool_use'
       ) {
-        const hasResultPayload =
-          block.result !== undefined || block.output !== undefined;
-        const envelope = getToolResultEnvelope(
-          block.result ?? block.output ?? '',
-        );
+        const hasResultPayload = block.result !== undefined || block.output !== undefined;
+        const envelope = getToolResultEnvelope(block.result ?? block.output ?? '');
         const resultRecord = asRecord(block.result);
         parts.push({
           type: 'tool',
@@ -1228,8 +1144,7 @@ export default function App() {
     for (const msg of messages) {
       totalParts += msg.parts.length;
       for (const part of msg.parts) {
-        if (typeof part.content === 'string')
-          totalTextLength += part.content.length;
+        if (typeof part.content === 'string') totalTextLength += part.content.length;
         if (part.type === 'tool') toolCount++;
       }
     }
@@ -1259,9 +1174,7 @@ export default function App() {
     if (prev.length === 0) return null;
 
     if (streamingMessageIdRef.current) {
-      const index = prev.findIndex(
-        (m) => m.id === streamingMessageIdRef.current,
-      );
+      const index = prev.findIndex((m) => m.id === streamingMessageIdRef.current);
       if (index < 0) return null;
       return { target: prev[index], index };
     }
@@ -1273,14 +1186,16 @@ export default function App() {
     return null;
   }
 
-  function handleRpcEvent(event: any) {
+  function handleRpcEvent(rawEvent: unknown) {
+    const event = asRecord(rawEvent);
     if (!event?.type) return;
 
     switch (event.type) {
       case 'response': {
         if (event.command === 'get_available_models') {
-          const modelPayloads: unknown[] = Array.isArray(event.data?.models)
-            ? event.data.models
+          const data = asRecord(event.data);
+          const modelPayloads: unknown[] = Array.isArray(data?.models)
+            ? (data.models as unknown[])
             : [];
           const models: Model[] = modelPayloads
             .map((model) => normaliseModel(model))
@@ -1288,8 +1203,7 @@ export default function App() {
           if (models.length > 0) {
             setAvailableModels(models);
             availableModelsRef.current = models;
-            if (modelsRetryRef.current)
-              window.clearTimeout(modelsRetryRef.current);
+            if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
             if (!currentModelRef.current) scheduleRequestModels();
           } else {
             scheduleRequestModels();
@@ -1297,23 +1211,19 @@ export default function App() {
           requestStats();
         }
         if (event.command === 'get_state') {
-          const state = event.data ?? {};
+          const state = asRecord(event.data) ?? {};
           const model = normaliseModel(state.model);
           if (model) {
             setCurrentModel(model);
             currentModelRef.current = model;
             setSelectedProvider(model.provider);
-            if (modelsRetryRef.current)
-              window.clearTimeout(modelsRetryRef.current);
-            if (availableModelsRef.current.length === 0)
-              scheduleRequestModels();
+            if (modelsRetryRef.current) window.clearTimeout(modelsRetryRef.current);
+            if (availableModelsRef.current.length === 0) scheduleRequestModels();
           } else {
             scheduleRequestModels();
           }
 
-          const stateThinkingLevel = normaliseThinkingLevel(
-            state.thinkingLevel,
-          );
+          const stateThinkingLevel = normaliseThinkingLevel(state.thinkingLevel);
           if (stateThinkingLevel) setThinkingLevel(stateThinkingLevel);
 
           const requestId = typeof event.id === 'string' ? event.id : '';
@@ -1326,8 +1236,7 @@ export default function App() {
               typeof state.sessionFile === 'string'
                 ? (state.sessionFile.split('/').pop() ?? '')
                 : '';
-            const messageCount =
-              typeof state.messageCount === 'number' ? state.messageCount : 0;
+            const messageCount = typeof state.messageCount === 'number' ? state.messageCount : 0;
             if (
               sessionFile &&
               messageCount > 0 &&
@@ -1335,8 +1244,7 @@ export default function App() {
               selectedProjectCwdRef.current === syncRequest.cwd
             ) {
               setSessions((prev) => {
-                if (prev.some((session) => session.file === sessionFile))
-                  return prev;
+                if (prev.some((session) => session.file === sessionFile)) return prev;
                 const sessionId =
                   typeof state.sessionId === 'string' && state.sessionId
                     ? state.sessionId
@@ -1368,16 +1276,13 @@ export default function App() {
               window.setTimeout(() => {
                 if (!isNewSessionRouteRef.current) return;
                 if (selectedProjectCwdRef.current !== syncRequest.cwd) return;
-                requestSessionRouteSync(
-                  syncRequest.cwd,
-                  syncRequest.attemptsLeft - 1,
-                );
+                requestSessionRouteSync(syncRequest.cwd, syncRequest.attemptsLeft - 1);
               }, 250);
             }
           }
         }
         if (event.command === 'set_model' && event.success) {
-          const model = normaliseModel(event.data);
+          const model = normaliseModel(asRecord(event.data));
           if (model) {
             setCurrentModel(model);
             currentModelRef.current = model;
@@ -1388,7 +1293,7 @@ export default function App() {
           });
         }
         if (event.command === 'set_thinking_level' && event.success) {
-          const level = normaliseThinkingLevel(event.data?.level);
+          const level = normaliseThinkingLevel(asRecord(event.data)?.level);
           if (level) setThinkingLevel(level);
           wsSend({
             type: 'rpc_command',
@@ -1396,7 +1301,7 @@ export default function App() {
           });
         }
         if (event.command === 'cycle_thinking_level' && event.success) {
-          const level = normaliseThinkingLevel(event.data?.level);
+          const level = normaliseThinkingLevel(asRecord(event.data)?.level);
           if (level) setThinkingLevel(level);
           wsSend({
             type: 'rpc_command',
@@ -1404,7 +1309,7 @@ export default function App() {
           });
         }
         if (event.command === 'get_session_stats' && event.success) {
-          setSessionStats(event.data);
+          setSessionStats(event.data as SessionStats | null);
         }
         break;
       }
@@ -1438,23 +1343,21 @@ export default function App() {
         break;
 
       case 'message_start': {
-        const msg = event.message;
+        const msg = asRecord(event.message);
         if (!msg) break;
-        const id = msg.id || crypto.randomUUID();
-        const role = msg.role || 'assistant';
-        if (role === 'toolResult' || role === 'tool_result' || role === 'tool')
-          break;
+        const id = typeof msg.id === 'string' ? msg.id : crypto.randomUUID();
+        const role = typeof msg.role === 'string' ? msg.role : 'assistant';
+        if (role === 'toolResult' || role === 'tool_result' || role === 'tool') break;
         const parts: MessagePart[] = [];
         if (msg.content) parseContentIntoParts(msg.content, parts);
         const entry: MessageEntry = {
           id,
           role,
           parts,
-          model: msg.model,
-          provider: msg.provider,
-          timestamp:
-            typeof msg.timestamp === 'number' ? msg.timestamp : undefined,
-          usage: msg.usage,
+          model: typeof msg.model === 'string' ? msg.model : undefined,
+          provider: typeof msg.provider === 'string' ? msg.provider : undefined,
+          timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : undefined,
+          usage: asRecord(msg.usage) as Usage | undefined,
         };
         if (role === 'assistant') streamingMessageIdRef.current = id;
         setCurrentMessages((prev) => {
@@ -1465,11 +1368,11 @@ export default function App() {
       }
 
       case 'message_update': {
-        const ame = event.assistantMessageEvent;
+        const ame = asRecord(event.assistantMessageEvent);
         const isThinking = ame?.type === 'thinking_delta';
         const delta: string | undefined =
           ame?.type === 'text_delta' || ame?.type === 'thinking_delta'
-            ? ame.delta
+            ? (ame.delta as string)
             : undefined;
         if (!delta) break;
         setCurrentMessages((prev) => {
@@ -1491,10 +1394,9 @@ export default function App() {
       }
 
       case 'message_end': {
-        const m = event.message;
+        const m = asRecord(event.message);
         if (m?.role && m.role !== 'assistant') break;
-        const endTs =
-          typeof m?.timestamp === 'number' ? m.timestamp : undefined;
+        const endTs = typeof m?.timestamp === 'number' ? m.timestamp : undefined;
         const streamId = streamingMessageIdRef.current;
         setCurrentMessages((prev) =>
           prev.map((msg) => {
@@ -1506,17 +1408,17 @@ export default function App() {
               return {
                 ...msg,
                 parts,
-                model: m.model ?? msg.model,
-                provider: m.provider ?? msg.provider,
+                model: typeof m.model === 'string' ? m.model : msg.model,
+                provider: typeof m.provider === 'string' ? m.provider : msg.provider,
                 timestamp: ts,
-                usage: m.usage ?? msg.usage,
+                usage: asRecord(m.usage) ?? msg.usage,
               };
             }
             return {
               ...msg,
               parts: msg.parts.map((p) => ({ ...p, done: true })),
               timestamp: ts,
-              usage: m?.usage ?? msg.usage,
+              usage: asRecord(m?.usage) ?? msg.usage,
             };
           }),
         );
@@ -1524,17 +1426,13 @@ export default function App() {
       }
 
       case 'tool_execution_start': {
-        const toolCallId = event.toolCallId || event.id;
+        const toolCallId = (event.toolCallId || event.id) as string | undefined;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
           const existingIndex = parts.findIndex(
-            (part) =>
-              part.type === 'tool' &&
-              part.id &&
-              toolCallId &&
-              part.id === toolCallId,
+            (part) => part.type === 'tool' && part.id && toolCallId && part.id === toolCallId,
           );
 
           if (existingIndex >= 0) {
@@ -1542,7 +1440,7 @@ export default function App() {
             parts[existingIndex] = {
               ...existing,
               type: 'tool',
-              name: event.toolName || event.name || existing.name || 'tool',
+              name: String(event.toolName || event.name || existing.name || 'tool'),
               args: event.args ?? existing.args,
               content: existing.content ?? '',
               done: false,
@@ -1553,7 +1451,7 @@ export default function App() {
           } else {
             parts.push({
               type: 'tool',
-              name: event.toolName || event.name || 'tool',
+              name: String(event.toolName || event.name || 'tool'),
               args: event.args,
               content: '',
               done: false,
@@ -1581,12 +1479,8 @@ export default function App() {
           const parts = [...hit.target.parts];
           const rev = [...parts].reverse();
           const tool =
-            rev.find(
-              (p) =>
-                p.type === 'tool' &&
-                !p.done &&
-                (!toolCallId || p.id === toolCallId),
-            ) || rev.find((p) => p.type === 'tool' && !p.done);
+            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done);
           if (tool) {
             if (event.args !== undefined) tool.args = event.args;
             if (hasPartialResult) {
@@ -1594,8 +1488,7 @@ export default function App() {
             } else if (partialEnvelope.text) {
               tool.content = `${extractToolText(tool.content)}${partialEnvelope.text}`;
             }
-            if (partialEnvelope.details !== undefined)
-              tool.details = partialEnvelope.details;
+            if (partialEnvelope.details !== undefined) tool.details = partialEnvelope.details;
           }
           const next = [...prev];
           next[hit.index] = { ...hit.target, parts };
@@ -1606,30 +1499,22 @@ export default function App() {
 
       case 'tool_execution_end': {
         const toolCallId = event.toolCallId || event.id;
-        const finalEnvelope = getToolResultEnvelope(
-          event.result ?? event.output ?? '',
-        );
-        const shouldReplaceContent =
-          event.result !== undefined || event.output !== undefined;
+        const finalEnvelope = getToolResultEnvelope(event.result ?? event.output ?? '');
+        const shouldReplaceContent = event.result !== undefined || event.output !== undefined;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
           const rev = [...parts].reverse();
           const tool =
-            rev.find(
-              (p) =>
-                p.type === 'tool' &&
-                !p.done &&
-                (!toolCallId || p.id === toolCallId),
-            ) || rev.find((p) => p.type === 'tool' && !p.done);
+            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done);
           if (tool) {
             if (event.args !== undefined) tool.args = event.args;
             tool.done = true;
             tool.isError = Boolean(event.isError);
             if (shouldReplaceContent) tool.content = finalEnvelope.text;
-            if (finalEnvelope.details !== undefined)
-              tool.details = finalEnvelope.details;
+            if (finalEnvelope.details !== undefined) tool.details = finalEnvelope.details;
           }
           const next = [...prev];
           next[hit.index] = { ...hit.target, parts };
@@ -1644,9 +1529,7 @@ export default function App() {
           setCurrentModel(model);
           currentModelRef.current = model;
         }
-        const level = normaliseThinkingLevel(
-          event.thinkingLevel ?? event.level,
-        );
+        const level = normaliseThinkingLevel(event.thinkingLevel ?? event.level);
         if (level) setThinkingLevel(level);
         break;
       }
@@ -1661,17 +1544,14 @@ export default function App() {
       if (!res.ok) return;
       const messages = (await res.json()) as ParsedMessage[];
       const parsed = parseLoadedMessages(messages);
-      lastExternalSessionSignatureRef.current =
-        buildMessageSnapshotSignature(parsed);
+      lastExternalSessionSignatureRef.current = buildMessageSnapshotSignature(parsed);
       setCurrentMessages(parsed);
-    } catch {}
+    } catch {
+      // fetch aborted or network error — ignore
+    }
   }
 
-  async function syncSessionMessagesFromDisk(
-    cwd: string,
-    file: string,
-    signal: AbortSignal,
-  ) {
+  async function syncSessionMessagesFromDisk(cwd: string, file: string, signal: AbortSignal) {
     const res = await fetch(
       `/api/session?cwd=${encodeURIComponent(cwd)}&filename=${encodeURIComponent(file)}`,
       { signal },
@@ -1749,9 +1629,7 @@ export default function App() {
 
     if (!activeSessionFile) return;
     const exists = sessions.some(
-      (session) =>
-        session.cwd === selectedProjectCwd &&
-        session.file === activeSessionFile,
+      (session) => session.cwd === selectedProjectCwd && session.file === activeSessionFile,
     );
     if (!exists) return;
     if (syncNavigatedRef.current) {
@@ -1763,13 +1641,8 @@ export default function App() {
       return;
     }
     void activateExistingSession(selectedProjectCwd, activeSessionFile);
-  }, [
-    activeSessionFile,
-    isNewSessionRoute,
-    selectedProjectCwd,
-    sessionIdParam,
-    sessions,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activateExistingSession/activateNewSession are stable
+  }, [activeSessionFile, isNewSessionRoute, selectedProjectCwd, sessionIdParam, sessions]);
 
   function switchSession(cwd: string, file: string) {
     navigate(sessionRoutePath(cwd, file));
@@ -1788,12 +1661,7 @@ export default function App() {
   }
 
   function browseToParentFolder() {
-    if (
-      !folderBrowserCwd ||
-      !folderBrowserRoot ||
-      folderBrowserCwd === folderBrowserRoot
-    )
-      return;
+    if (!folderBrowserCwd || !folderBrowserRoot || folderBrowserCwd === folderBrowserRoot) return;
     const parts = folderBrowserCwd.split('/').filter(Boolean);
     const parent = parts.length <= 1 ? '/' : `/${parts.slice(0, -1).join('/')}`;
     navigate(projectsRoutePath(parent));
@@ -1861,9 +1729,7 @@ export default function App() {
       );
     }
     if (failedReadCount > 0) {
-      notices.push(
-        `${failedReadCount} file${failedReadCount === 1 ? '' : 's'} could not be read`,
-      );
+      notices.push(`${failedReadCount} file${failedReadCount === 1 ? '' : 's'} could not be read`);
     }
 
     setComposerNotice(notices.length > 0 ? notices.join('. ') : null);
@@ -1879,20 +1745,13 @@ export default function App() {
   }
 
   function removeComposerAttachment(attachmentId: string) {
-    setComposerAttachments((prev) =>
-      prev.filter((attachment) => attachment.id !== attachmentId),
-    );
+    setComposerAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
     setComposerNotice(null);
   }
 
   function sendPrompt() {
     const text = inputValue.trim();
-    if (
-      (!text && composerAttachments.length === 0) ||
-      !isConnected ||
-      !hasActiveSession
-    )
-      return;
+    if ((!text && composerAttachments.length === 0) || !isConnected || !hasActiveSession) return;
     if (composerAttachments.length > 0 && !modelSupportsAttachments) {
       setComposerNotice('Selected model does not support file attachments.');
       return;
@@ -1982,10 +1841,10 @@ export default function App() {
         `/api/session?cwd=${encodeURIComponent(cwd)}&filename=${encodeURIComponent(file)}`,
         { method: 'DELETE' },
       );
-    } catch {}
-    setSessions((prev) =>
-      prev.filter((s) => !(s.cwd === cwd && s.file === file)),
-    );
+    } catch {
+      // deletion failed — session list will still be updated optimistically
+    }
+    setSessions((prev) => prev.filter((s) => !(s.cwd === cwd && s.file === file)));
     const activeCwd = selectedProjectCwd === cwd ? cwd : null;
     if (activeSessionFileRef.current === file && activeCwd === cwd) {
       setCurrentMessages([]);
@@ -2005,9 +1864,7 @@ export default function App() {
     }
   }
 
-  const connectionA11yLabel = isStreaming
-    ? 'streaming response'
-    : 'session status';
+  const connectionA11yLabel = isStreaming ? 'streaming response' : 'session status';
 
   return (
     <div className="flex flex-col h-full bg-pi-page-bg text-pi-text text-sm font-mono overflow-hidden">
@@ -2058,14 +1915,10 @@ export default function App() {
           <div className="flex items-center gap-2 px-4 py-2 md:px-6 border-b border-pi-border-muted bg-pi-card-bg">
             <div className="min-w-0">
               <div className="text-[11px] text-pi-dim truncate">
-                {selectedProjectCwd
-                  ? shortenCwd(selectedProjectCwd)
-                  : 'folder not selected'}
+                {selectedProjectCwd ? shortenCwd(selectedProjectCwd) : 'folder not selected'}
               </div>
               <div className="text-xs truncate text-pi-muted">
-                {activeSessionFile
-                  ? activeSessionFile.split('/').pop()
-                  : 'new session'}
+                {activeSessionFile ? activeSessionFile.split('/').pop() : 'new session'}
               </div>
             </div>
             <button
@@ -2088,10 +1941,7 @@ export default function App() {
             </button>
           </div>
 
-          <div
-            ref={threadRef}
-            className="flex-1 overflow-y-auto px-4 py-2 md:px-6"
-          >
+          <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-2 md:px-6">
             {currentMessages.length === 0 && promptQueue.length === 0 ? (
               <div className="flex items-center justify-center h-full text-pi-muted text-base">
                 choose a session and start prompting.
@@ -2103,40 +1953,34 @@ export default function App() {
                     (msg.role === 'user' || msg.role === 'assistant') &&
                     (msg.role === 'user' ||
                       msg.parts.some(
-                        (p) =>
-                          p.type === 'tool' ||
-                          (p.type === 'text' && (p.content ?? '').trim()),
+                        (p) => p.type === 'tool' || (p.type === 'text' && (p.content ?? '').trim()),
                       )),
                 );
                 const steeringMessages = currentMessages.filter(
                   (msg) =>
                     (msg.role === 'steering' || msg.role === 'system') &&
-                    msg.parts.some(
-                      (p) => p.type === 'text' && (p.content ?? '').trim(),
-                    ),
+                    msg.parts.some((p) => p.type === 'text' && (p.content ?? '').trim()),
                 );
-                const queuedSteeringMessages: MessageEntry[] = promptQueue.map(
-                  (queued) => {
-                    const message = queued.message.trim();
-                    const fallback =
-                      queued.images.length > 0
-                        ? queued.images.length === 1
-                          ? '[queued image]'
-                          : `[${queued.images.length} queued images]`
-                        : '[queued message]';
-                    return {
-                      id: queued.id,
-                      role: 'steering',
-                      parts: [
-                        {
-                          type: 'text',
-                          content: message || fallback,
-                          done: true,
-                        },
-                      ],
-                    };
-                  },
-                );
+                const queuedSteeringMessages: MessageEntry[] = promptQueue.map((queued) => {
+                  const message = queued.message.trim();
+                  const fallback =
+                    queued.images.length > 0
+                      ? queued.images.length === 1
+                        ? '[queued image]'
+                        : `[${queued.images.length} queued images]`
+                      : '[queued message]';
+                  return {
+                    id: queued.id,
+                    role: 'steering',
+                    parts: [
+                      {
+                        type: 'text',
+                        content: message || fallback,
+                        done: true,
+                      },
+                    ],
+                  };
+                });
 
                 return [
                   ...conversationMessages,
@@ -2178,18 +2022,12 @@ export default function App() {
                     </select>
                   </>
                 )}
-                {availableModels.length === 0 && currentModel && (
-                  <span>{currentModel.id}</span>
-                )}
+                {availableModels.length === 0 && currentModel && <span>{currentModel.id}</span>}
                 {hasActiveSession && (
                   <select
                     value={thinkingLevel}
                     onChange={(e) => handleThinkingLevelChange(e.target.value)}
-                    disabled={
-                      !isConnected ||
-                      isStreaming ||
-                      currentModel?.reasoning === false
-                    }
+                    disabled={!isConnected || isStreaming || currentModel?.reasoning === false}
                     aria-label="thinking level"
                     title="thinking level"
                     className="font-mono text-pi-control-fg bg-pi-control-bg border border-pi-border-muted rounded px-1 py-0.5 cursor-pointer disabled:opacity-50 select-fit-content"
@@ -2217,20 +2055,12 @@ export default function App() {
                 {sessionStats.tokens.cacheWrite > 0 && (
                   <span>w{formatTokens(sessionStats.tokens.cacheWrite)}</span>
                 )}
-                {sessionStats.cost > 0 && (
-                  <span>${sessionStats.cost.toFixed(2)}</span>
-                )}
+                {sessionStats.cost > 0 && <span>${sessionStats.cost.toFixed(2)}</span>}
                 {currentModel?.contextWindow &&
                   contextUsageTokens &&
                   (() => {
-                    const pct =
-                      (contextUsageTokens / currentModel.contextWindow!) * 100;
-                    const color =
-                      pct > 90
-                        ? 'text-pi-error'
-                        : pct > 70
-                          ? 'text-pi-warning'
-                          : '';
+                    const pct = (contextUsageTokens / currentModel.contextWindow!) * 100;
+                    const color = pct > 90 ? 'text-pi-error' : pct > 70 ? 'text-pi-warning' : '';
                     return (
                       <span className={color}>
                         {pct.toFixed(0)}%/
@@ -2279,9 +2109,7 @@ export default function App() {
             )}
 
             {composerNotice && (
-              <div className="mb-2 text-[11px] text-pi-warning">
-                {composerNotice}
-              </div>
+              <div className="mb-2 text-[11px] text-pi-warning">{composerNotice}</div>
             )}
 
             <div className="flex gap-2 items-center">
@@ -2291,11 +2119,7 @@ export default function App() {
               <textarea
                 ref={inputRef}
                 rows={1}
-                placeholder={
-                  hasActiveSession
-                    ? 'send a message...'
-                    : 'create or select a session'
-                }
+                placeholder={hasActiveSession ? 'send a message...' : 'create or select a session'}
                 disabled={!hasActiveSession}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -2363,12 +2187,7 @@ export default function App() {
                   title="stop"
                   className="h-[var(--composer-control-size)] aspect-square inline-flex items-center justify-center flex-shrink-0 rounded-lg border border-pi-border-muted text-pi-muted hover:text-pi-accent hover:bg-pi-user-bg cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 18 18"
-                    fill="currentColor"
-                  >
+                  <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
                     <rect x="4" y="4" width="10" height="10" rx="1.5" />
                   </svg>
                 </button>
@@ -2388,8 +2207,7 @@ function MessageBubble({ msg }: { msg: MessageEntry }) {
     (part) => part.type === 'text' && Boolean((part.content ?? '').trim()),
   );
   const hasToolPart = msg.parts.some((part) => part.type === 'tool');
-  const isToolOnlyMessage =
-    !isUser && !isSteering && hasToolPart && !hasVisibleTextPart;
+  const isToolOnlyMessage = !isUser && !isSteering && hasToolPart && !hasVisibleTextPart;
   const bubbleToneClass = isUser
     ? 'bg-pi-card-bg border border-pi-border-muted'
     : isToolOnlyMessage
@@ -2436,9 +2254,7 @@ function FolderBrowser({
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-base md:text-lg font-semibold text-pi-accent">
-            browse folders
-          </h1>
+          <h1 className="text-base md:text-lg font-semibold text-pi-accent">browse folders</h1>
           <p className="text-pi-muted mt-1 truncate" title={cwd ?? ''}>
             {cwd ? asHomeRelativePath(cwd) : 'loading…'}
           </p>
@@ -2488,20 +2304,12 @@ function FolderBrowser({
       </div>
 
       <div className="rounded-xl border border-pi-border-muted bg-pi-card-bg">
-        {isLoading && (
-          <div className="px-4 py-6 text-center text-pi-muted">
-            loading folders…
-          </div>
-        )}
+        {isLoading && <div className="px-4 py-6 text-center text-pi-muted">loading folders…</div>}
 
-        {!isLoading && error && (
-          <div className="px-4 py-6 text-center text-pi-error">{error}</div>
-        )}
+        {!isLoading && error && <div className="px-4 py-6 text-center text-pi-error">{error}</div>}
 
         {!isLoading && !error && folders.length === 0 && (
-          <div className="px-4 py-6 text-center text-pi-muted">
-            no visible folders here.
-          </div>
+          <div className="px-4 py-6 text-center text-pi-muted">no visible folders here.</div>
         )}
 
         {!isLoading && !error && folders.length > 0 && (
@@ -2513,9 +2321,7 @@ function FolderBrowser({
                 className="w-full text-left px-4 py-3 hover:bg-pi-user-bg cursor-pointer"
                 title={folder.path}
               >
-                <div className="text-sm text-pi-text truncate">
-                  {folder.name}
-                </div>
+                <div className="text-sm text-pi-text truncate">{folder.name}</div>
               </button>
             ))}
           </div>
@@ -2544,9 +2350,7 @@ function SessionPicker({
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-start gap-3 justify-between">
         <div className="min-w-0">
-          <h1 className="text-base md:text-lg font-semibold text-pi-accent">
-            choose a session
-          </h1>
+          <h1 className="text-base md:text-lg font-semibold text-pi-accent">choose a session</h1>
           <p className="text-pi-muted mt-1 truncate" title={projectCwd}>
             {projectCwd}
           </p>
@@ -2599,16 +2403,10 @@ function SessionPicker({
         <div className="space-y-2">
           {sessions.map((session) => {
             const label = session.firstPrompt || session.id.slice(0, 8);
-            const time = session.timestamp
-              ? new Date(session.timestamp).toLocaleString()
-              : '';
+            const time = session.timestamp ? new Date(session.timestamp).toLocaleString() : '';
             const isWorking = Boolean(session.isWorking);
             const isActive = Boolean(session.isActive);
-            const statusLabel = isWorking
-              ? 'working'
-              : isActive
-                ? 'active'
-                : 'idle';
+            const statusLabel = isWorking ? 'working' : isActive ? 'active' : 'idle';
             const statusDotClass = isWorking
               ? 'bg-pi-success animate-pulse-dot'
               : isActive
@@ -2623,18 +2421,14 @@ function SessionPicker({
                   onClick={() => onSelectSession(session.cwd, session.file)}
                   className="w-full text-left cursor-pointer"
                 >
-                  <div className="text-sm text-pi-text truncate pr-8">
-                    {label}
-                  </div>
+                  <div className="text-sm text-pi-text truncate pr-8">{label}</div>
                   <div className="text-[11px] text-pi-muted mt-1 flex items-center gap-1.5 flex-wrap">
                     <span>{session.messageCount} msgs</span>
                     <span>·</span>
                     <span>{time}</span>
                     <span>·</span>
                     <span className="inline-flex items-center gap-1">
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${statusDotClass}`}
-                      />
+                      <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass}`} />
                       {statusLabel}
                     </span>
                   </div>
@@ -2668,11 +2462,7 @@ function SessionPicker({
 
 function Part({ part }: { part: MessagePart }) {
   if (part.type === 'text') {
-    return (
-      <div
-        dangerouslySetInnerHTML={{ __html: formatText(part.content || '') }}
-      />
-    );
+    return <div dangerouslySetInnerHTML={{ __html: formatText(part.content || '') }} />;
   }
   if (part.type === 'thinking') {
     return null;
@@ -2686,8 +2476,7 @@ function Part({ part }: { part: MessagePart }) {
 function ToolPart({ part }: { part: MessagePart }) {
   const result = useMemo(() => formatToolExecutionForDisplay(part), [part]);
   const preMaxHeightClass = part.name === 'edit' ? '' : 'max-h-64';
-  const preOverflowClass =
-    part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
+  const preOverflowClass = part.name === 'edit' ? 'overflow-x-auto' : 'overflow-auto';
 
   if (result.kind === 'diff') {
     return (
@@ -2749,11 +2538,7 @@ function formatText(raw: string): string {
       continue;
     }
 
-    if (
-      /^\|/.test(line) &&
-      i + 1 < lines.length &&
-      /^\|[\s\-:|]+\|/.test(lines[i + 1])
-    ) {
+    if (/^\|/.test(line) && i + 1 < lines.length && /^\|[\s\-:|]+\|/.test(lines[i + 1])) {
       const headers = parseTableRow(lines[i]);
       const aligns = parseTableAligns(lines[i + 1]);
       i += 2;
@@ -2783,14 +2568,7 @@ function formatText(raw: string): string {
     const hMatch = line.match(/^(#{1,6})\s+(.*)/);
     if (hMatch) {
       const level = hMatch[1].length;
-      const sizes = [
-        'text-lg',
-        'text-base',
-        'text-sm',
-        'text-sm',
-        'text-xs',
-        'text-xs',
-      ];
+      const sizes = ['text-lg', 'text-base', 'text-sm', 'text-sm', 'text-xs', 'text-xs'];
       out.push(
         `<h${level} class="font-semibold ${sizes[level - 1]} mt-3 mb-1 text-pi-md-heading">${inlineFormat(hMatch[2])}</h${level}>`,
       );
@@ -2850,14 +2628,11 @@ function inlineFormat(text: string): string {
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
   out = out.replace(/~~([^~]+)~~/g, "<del class='opacity-60'>$1</del>");
-  out = out.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_match, label: string, href: string) => {
-      const safeHref = sanitiseHref(href);
-      if (!safeHref) return label;
-      return `<a href="${escapeHtmlAttribute(safeHref)}" target="_blank" rel="noopener noreferrer" class="text-pi-md-link underline">${label}</a>`;
-    },
-  );
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
+    const safeHref = sanitiseHref(href);
+    if (!safeHref) return label;
+    return `<a href="${escapeHtmlAttribute(safeHref)}" target="_blank" rel="noopener noreferrer" class="text-pi-md-link underline">${label}</a>`;
+  });
   return out;
 }
 
@@ -2883,14 +2658,14 @@ function decodeHtmlEntities(text: string): string {
 function sanitiseHref(rawHref: string): string | null {
   const decodedHref = decodeHtmlEntities(rawHref.trim());
   if (!decodedHref) return null;
-  if (decodedHref.startsWith('#') || decodedHref.startsWith('/'))
-    return decodedHref;
+  if (decodedHref.startsWith('#') || decodedHref.startsWith('/')) return decodedHref;
   try {
     const url = new URL(decodedHref, 'http://localhost');
     const protocol = url.protocol.toLowerCase();
-    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:')
-      return decodedHref;
-  } catch {}
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') return decodedHref;
+  } catch {
+    // invalid URL — treat as unsafe
+  }
   return null;
 }
 
@@ -2913,23 +2688,13 @@ function escapeHtml(text: string): string {
 
 function getUsageTokens(usage?: Usage): number {
   if (!usage) return 0;
-  if (
-    typeof usage.totalTokens === 'number' &&
-    Number.isFinite(usage.totalTokens)
-  )
+  if (typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens))
     return usage.totalTokens;
-  const input =
-    typeof usage.input === 'number' && Number.isFinite(usage.input)
-      ? usage.input
-      : 0;
+  const input = typeof usage.input === 'number' && Number.isFinite(usage.input) ? usage.input : 0;
   const output =
-    typeof usage.output === 'number' && Number.isFinite(usage.output)
-      ? usage.output
-      : 0;
+    typeof usage.output === 'number' && Number.isFinite(usage.output) ? usage.output : 0;
   const cacheRead =
-    typeof usage.cacheRead === 'number' && Number.isFinite(usage.cacheRead)
-      ? usage.cacheRead
-      : 0;
+    typeof usage.cacheRead === 'number' && Number.isFinite(usage.cacheRead) ? usage.cacheRead : 0;
   const cacheWrite =
     typeof usage.cacheWrite === 'number' && Number.isFinite(usage.cacheWrite)
       ? usage.cacheWrite
@@ -2950,7 +2715,9 @@ function estimateMessageTokens(message: MessageEntry): number {
       if (part.args != null) {
         try {
           chars += JSON.stringify(part.args).length;
-        } catch {}
+        } catch {
+          // non-serialisable args — skip
+        }
       }
     }
   }
@@ -2964,14 +2731,10 @@ function estimateContextTokens(messages: MessageEntry[]): number | null {
     const usageTokens = getUsageTokens(message.usage);
     if (usageTokens <= 0) continue;
     let trailing = 0;
-    for (let j = i + 1; j < messages.length; j++)
-      trailing += estimateMessageTokens(messages[j]);
+    for (let j = i + 1; j < messages.length; j++) trailing += estimateMessageTokens(messages[j]);
     return usageTokens + trailing;
   }
-  const estimated = messages.reduce(
-    (sum, message) => sum + estimateMessageTokens(message),
-    0,
-  );
+  const estimated = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
   return estimated > 0 ? estimated : null;
 }
 function formatTokens(n: number): string {

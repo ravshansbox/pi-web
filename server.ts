@@ -1,12 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import {
-  createReadStream,
-  existsSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-} from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import {
   basename,
@@ -21,6 +15,7 @@ import {
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RpcSession, type RpcEvent } from './rpc.js';
 import type { RpcCommand } from '@earendil-works/pi-coding-agent';
 import {
@@ -53,11 +48,7 @@ function getArg(name: string): string | undefined {
   const pair = process.argv.find((a) => a.startsWith(flag));
   if (pair) return pair.slice(flag.length);
   const idx = process.argv.indexOf(`--${name}`);
-  if (
-    idx !== -1 &&
-    process.argv[idx + 1] &&
-    !process.argv[idx + 1].startsWith('--')
-  )
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--'))
     return process.argv[idx + 1];
   return undefined;
 }
@@ -85,26 +76,17 @@ const AGENT_CMD = getAgentCommand(AGENT);
 const IDLE_SESSION_TTL_MS = 60_000;
 const isWatchMode =
   process.argv.includes('--watch') ||
-  process.execArgv.some(
-    (arg) => arg === '--watch' || arg.startsWith('--watch-'),
-  );
+  process.execArgv.some((arg) => arg === '--watch' || arg.startsWith('--watch-'));
 const isDev = isWatchMode;
 
-const distDirCandidates = [
-  join(__dirname, 'dist'),
-  join(__dirname, '..', '..', 'dist'),
-];
+const distDirCandidates = [join(__dirname, 'dist'), join(__dirname, '..', '..', 'dist')];
 const distDir =
-  distDirCandidates.find((candidate) =>
-    existsSync(join(candidate, 'index.html')),
-  ) ?? distDirCandidates[0];
+  distDirCandidates.find((candidate) => existsSync(join(candidate, 'index.html'))) ??
+  distDirCandidates[0];
 const htmlPath = join(distDir, 'index.html');
-const htmlCache =
-  isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
+const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
 const HOME_DIR = resolve(homedir() || '/');
-const SESSION_ROOT = resolve(
-  join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'),
-);
+const SESSION_ROOT = resolve(join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'));
 
 type FolderEntry = { name: string; path: string };
 
@@ -113,9 +95,7 @@ function isWithinRoot(path: string, root: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-async function listFolders(
-  cwdQuery?: string | null,
-): Promise<{
+async function listFolders(cwdQuery?: string | null): Promise<{
   cwd: string;
   root: string;
   folders: FolderEntry[];
@@ -155,7 +135,7 @@ const contentTypes: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-function serveFile(filePath: string, res: any) {
+function serveFile(filePath: string, res: ServerResponse<IncomingMessage>) {
   const ext = extname(filePath).toLowerCase();
   res.writeHead(200, {
     'Content-Type': contentTypes[ext] || 'application/octet-stream',
@@ -167,7 +147,7 @@ function logServerError(context: string, error: unknown) {
   console.error(`[pi-web] ${context}`, error);
 }
 
-function respondJson(res: any, statusCode: number, payload: unknown) {
+function respondJson(res: ServerResponse<IncomingMessage>, statusCode: number, payload: unknown) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
 }
@@ -273,21 +253,13 @@ const server = createServer((req, res) => {
       .replace(/^(\.\.[/\\])+/, '')
       .replace(/^[/\\]+/, '');
     const filePath = resolve(join(distDir, safePath));
-    if (
-      isWithinRoot(filePath, distDir) &&
-      existsSync(filePath) &&
-      statSync(filePath).isFile()
-    ) {
+    if (isWithinRoot(filePath, distDir) && existsSync(filePath) && statSync(filePath).isFile()) {
       serveFile(filePath, res);
       return;
     }
 
     const acceptsHtml = (req.headers.accept ?? '').includes('text/html');
-    if (
-      req.method === 'GET' &&
-      !url.pathname.startsWith('/api/') &&
-      acceptsHtml
-    ) {
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/') && acceptsHtml) {
       if (!existsSync(htmlPath)) {
         res.writeHead(503, { 'Content-Type': 'text/plain' });
         res.end('frontend not built. run: npm run build');
@@ -329,11 +301,7 @@ function getSocketClientId(ws: WebSocket): string {
   return next;
 }
 
-function buildSessionKey(
-  cwd: string,
-  sessionFile: string | null,
-  scope?: string,
-): string {
+function buildSessionKey(cwd: string, sessionFile: string | null, scope?: string): string {
   if (sessionFile) return `${cwd}::${basename(sessionFile)}`;
   return `${cwd}::__new__::${scope ?? 'shared'}`;
 }
@@ -344,8 +312,7 @@ function getSessionRuntimeStatus(
 ): { isActive: boolean; isWorking: boolean } {
   const key = buildSessionKey(resolve(cwd), basename(sessionFile));
   const managed = rpcSessions.get(key);
-  if (!managed || managed.isClosing)
-    return { isActive: false, isWorking: false };
+  if (!managed || managed.isClosing) return { isActive: false, isWorking: false };
   return {
     isActive: managed.isAgentRunning || managed.clients.size > 0,
     isWorking: managed.isAgentRunning,
@@ -389,10 +356,7 @@ function closeManagedSession(managed: ManagedRpcSession) {
   managed.rpc.kill();
 }
 
-function findManagedSessionByFile(
-  cwd: string,
-  sessionFile: string,
-): ManagedRpcSession | null {
+function findManagedSessionByFile(cwd: string, sessionFile: string): ManagedRpcSession | null {
   const key = buildSessionKey(resolve(cwd), basename(sessionFile));
   const direct = rpcSessions.get(key);
   if (direct && !direct.isClosing) return direct;
@@ -451,7 +415,9 @@ function deriveModelSupportsImages(model: unknown): boolean | null {
 
 function updateSessionModelCapability(managed: ManagedRpcSession, event: RpcEvent) {
   if (event.type === 'model_changed') {
-    const supports = deriveModelSupportsImages((event as { type: 'model_changed'; model: unknown }).model);
+    const supports = deriveModelSupportsImages(
+      (event as { type: 'model_changed'; model: unknown }).model,
+    );
     if (supports != null) managed.currentModelSupportsImages = supports;
     return;
   }
@@ -475,9 +441,7 @@ function createManagedSession(
   sessionFile: string | null,
   initialKey: string,
 ): ManagedRpcSession {
-  const sessionPath = sessionFile
-    ? getSessionFilePath(cwd, sessionFile, AGENT)
-    : undefined;
+  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
   let managed: ManagedRpcSession | null = null;
 
   const rpc = new RpcSession({
@@ -514,8 +478,7 @@ function createManagedSession(
       unregisterManagedSession(managed);
       broadcast(managed, { type: 'session_ended', code });
       for (const client of managed.clients) {
-        if (socketBindings.get(client) === managed)
-          socketBindings.delete(client);
+        if (socketBindings.get(client) === managed) socketBindings.delete(client);
       }
       managed.clients.clear();
     },
@@ -539,7 +502,7 @@ function createManagedSession(
 
 wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (raw) => {
-    let msg: any;
+    let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(String(raw));
     } catch {
@@ -548,9 +511,7 @@ wss.on('connection', (ws: WebSocket) => {
 
     if (msg.type === 'start_session') {
       const cwd =
-        typeof msg.cwd === 'string' && msg.cwd.trim().length > 0
-          ? resolve(msg.cwd)
-          : HOME_DIR;
+        typeof msg.cwd === 'string' && msg.cwd.trim().length > 0 ? resolve(msg.cwd) : HOME_DIR;
       const sessionFile =
         typeof msg.sessionFile === 'string' && msg.sessionFile.length > 0
           ? basename(msg.sessionFile)
@@ -570,8 +531,7 @@ wss.on('connection', (ws: WebSocket) => {
       detachSocket(ws);
 
       let managed = rpcSessions.get(key);
-      if (!managed || managed.isClosing)
-        managed = createManagedSession(cwd, sessionFile, key);
+      if (!managed || managed.isClosing) managed = createManagedSession(cwd, sessionFile, key);
 
       managed.clients.add(ws);
       clearIdleCleanupTimer(managed);
@@ -593,18 +553,10 @@ wss.on('connection', (ws: WebSocket) => {
 
       const command = msg.command as RpcCommand;
       const isPromptLikeCommand =
-        command.type === 'prompt' ||
-        command.type === 'steer' ||
-        command.type === 'follow_up';
+        command.type === 'prompt' || command.type === 'steer' || command.type === 'follow_up';
       const hasImages =
-        'images' in command &&
-        Array.isArray(command.images) &&
-        command.images.length > 0;
-      if (
-        isPromptLikeCommand &&
-        hasImages &&
-        managed.currentModelSupportsImages === false
-      ) {
+        'images' in command && Array.isArray(command.images) && command.images.length > 0;
+      if (isPromptLikeCommand && hasImages && managed.currentModelSupportsImages === false) {
         sendToSocket(ws, {
           type: 'error',
           message: 'selected model does not support file attachments',

@@ -17,8 +17,8 @@ body,
 *::before,
 *::after {
   font-family:
-    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    'Liberation Mono', 'Courier New', monospace !important;
+    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace !important;
   font-size: 14px !important;
 }
 

@@ -43,9 +43,10 @@ function sanitiseHref(rawHref) {
   try {
     const url = new URL(href, 'http://localhost');
     const protocol = url.protocol.toLowerCase();
-    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:')
-      return href;
-  } catch {}
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') return href;
+  } catch {
+    // invalid URL
+  }
   return null;
 }
 
@@ -73,9 +74,7 @@ function cwdToSessionDir(cwd, agent, homeDir) {
       normalisedCwd.startsWith(`${homeDir}/`) ||
       normalisedCwd.startsWith(`${homeDir}\\`)
     ) {
-      const relative = normalisedCwd
-        .slice(homeDir.length)
-        .replace(/^[/\\]/, '');
+      const relative = normalisedCwd.slice(homeDir.length).replace(/^[/\\]/, '');
       return `-${relative.replace(/[/\\:]/g, '-')}`;
     }
   }
@@ -85,36 +84,21 @@ function cwdToSessionDir(cwd, agent, homeDir) {
 }
 
 assert.equal(sanitiseHref('https://example.com'), 'https://example.com');
-assert.equal(
-  sanitiseHref('mailto:test@example.com'),
-  'mailto:test@example.com',
-);
+assert.equal(sanitiseHref('mailto:test@example.com'), 'mailto:test@example.com');
 assert.equal(sanitiseHref('/docs'), '/docs');
 assert.equal(sanitiseHref('#intro'), '#intro');
 assert.equal(sanitiseHref('javascript:alert(1)'), null);
 assert.equal(sanitiseHref('data:text/html,boom'), null);
 
-assert.match(
-  inlineFormat('[safe](https://example.com)'),
-  /href="https:\/\/example\.com"/,
-);
+assert.match(inlineFormat('[safe](https://example.com)'), /href="https:\/\/example\.com"/);
 assert.doesNotMatch(inlineFormat('[bad](javascript:alert(1))'), /href=/);
 assert.match(
   inlineFormat('[quoted](https://example.com?q=&quot;x&quot;)'),
   /href="https:\/\/example\.com\?q=&amp;quot;x&amp;quot;"/,
 );
 
-assert.equal(
-  cwdToSessionDir('/Users/test/project', 'pi', '/Users/test'),
-  '--Users-test-project--',
-);
-assert.equal(
-  cwdToSessionDir('/Users/test/project', 'omp', '/Users/test'),
-  '-project',
-);
-assert.equal(
-  cwdToSessionDir('/tmp/project', 'omp', '/Users/test'),
-  '--tmp-project--',
-);
+assert.equal(cwdToSessionDir('/Users/test/project', 'pi', '/Users/test'), '--Users-test-project--');
+assert.equal(cwdToSessionDir('/Users/test/project', 'omp', '/Users/test'), '-project');
+assert.equal(cwdToSessionDir('/tmp/project', 'omp', '/Users/test'), '--tmp-project--');
 
 console.log('smoke checks passed');
