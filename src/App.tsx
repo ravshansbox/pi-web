@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { RpcEvent } from '../shared/pi-types.js';
 type SessionSummary = {
   id: string;
   file: string;
@@ -861,7 +861,7 @@ export default function App() {
       } catch {
         return;
       }
-      if (msg.type === 'rpc_event') handleRpcEvent(msg.event);
+      if (msg.type === 'rpc_event') handleRpcEvent(msg.event as RpcEvent);
       if (msg.type === 'error') {
         console.error('[pi-web]', msg.message);
         if (typeof msg.message === 'string') {
@@ -1186,17 +1186,11 @@ export default function App() {
     return null;
   }
 
-  function handleRpcEvent(rawEvent: unknown) {
-    const event = asRecord(rawEvent);
-    if (!event?.type) return;
-
+  function handleRpcEvent(event: RpcEvent) {
     switch (event.type) {
       case 'response': {
-        if (event.command === 'get_available_models') {
-          const data = asRecord(event.data);
-          const modelPayloads: unknown[] = Array.isArray(data?.models)
-            ? (data.models as unknown[])
-            : [];
+        if (event.command === 'get_available_models' && event.success) {
+          const modelPayloads = event.data.models;
           const models: Model[] = modelPayloads
             .map((model) => normaliseModel(model))
             .filter((model): model is Model => model != null);
@@ -1210,8 +1204,8 @@ export default function App() {
           }
           requestStats();
         }
-        if (event.command === 'get_state') {
-          const state = asRecord(event.data) ?? {};
+        if (event.command === 'get_state' && event.success) {
+          const state = event.data;
           const model = normaliseModel(state.model);
           if (model) {
             setCurrentModel(model);
@@ -1232,11 +1226,8 @@ export default function App() {
             : undefined;
           if (syncRequest) {
             sessionRouteSyncAttemptsRef.current.delete(requestId);
-            const sessionFile =
-              typeof state.sessionFile === 'string'
-                ? (state.sessionFile.split('/').pop() ?? '')
-                : '';
-            const messageCount = typeof state.messageCount === 'number' ? state.messageCount : 0;
+            const sessionFile = state.sessionFile ? (state.sessionFile.split('/').pop() ?? '') : '';
+            const messageCount = state.messageCount;
             if (
               sessionFile &&
               messageCount > 0 &&
@@ -1245,10 +1236,7 @@ export default function App() {
             ) {
               setSessions((prev) => {
                 if (prev.some((session) => session.file === sessionFile)) return prev;
-                const sessionId =
-                  typeof state.sessionId === 'string' && state.sessionId
-                    ? state.sessionId
-                    : sessionFile;
+                const sessionId = state.sessionId || sessionFile;
                 return [
                   {
                     id: sessionId,
@@ -1282,7 +1270,7 @@ export default function App() {
           }
         }
         if (event.command === 'set_model' && event.success) {
-          const model = normaliseModel(asRecord(event.data));
+          const model = normaliseModel(event.data);
           if (model) {
             setCurrentModel(model);
             currentModelRef.current = model;
@@ -1293,23 +1281,24 @@ export default function App() {
           });
         }
         if (event.command === 'set_thinking_level' && event.success) {
-          const level = normaliseThinkingLevel(asRecord(event.data)?.level);
-          if (level) setThinkingLevel(level);
-          wsSend({
-            type: 'rpc_command',
-            command: { type: 'get_state', id: 'get_state' },
-          });
+          wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
         }
         if (event.command === 'cycle_thinking_level' && event.success) {
-          const level = normaliseThinkingLevel(asRecord(event.data)?.level);
+          const level = normaliseThinkingLevel(event.data?.level);
           if (level) setThinkingLevel(level);
-          wsSend({
-            type: 'rpc_command',
-            command: { type: 'get_state', id: 'get_state' },
-          });
+          wsSend({ type: 'rpc_command', command: { type: 'get_state', id: 'get_state' } });
         }
         if (event.command === 'get_session_stats' && event.success) {
-          setSessionStats(event.data as SessionStats | null);
+          const stats = event.data;
+          setSessionStats({
+            tokens: {
+              input: stats.tokens.input,
+              output: stats.tokens.output,
+              cacheRead: stats.tokens.cacheRead,
+              cacheWrite: stats.tokens.cacheWrite,
+            },
+            cost: stats.cost,
+          });
         }
         break;
       }
@@ -1343,37 +1332,44 @@ export default function App() {
         break;
 
       case 'message_start': {
-        const msg = asRecord(event.message);
-        if (!msg) break;
-        const id = typeof msg.id === 'string' ? msg.id : crypto.randomUUID();
-        const role = typeof msg.role === 'string' ? msg.role : 'assistant';
-        if (role === 'toolResult' || role === 'tool_result' || role === 'tool') break;
+        const msg = event.message;
+        const role = msg.role;
+        if (role === 'toolResult') break;
+        const id = asRecord(msg)?.id;
+        const msgId = typeof id === 'string' ? id : crypto.randomUUID();
         const parts: MessagePart[] = [];
-        if (msg.content) parseContentIntoParts(msg.content, parts);
-        const entry: MessageEntry = {
-          id,
-          role,
-          parts,
-          model: typeof msg.model === 'string' ? msg.model : undefined,
-          provider: typeof msg.provider === 'string' ? msg.provider : undefined,
-          timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : undefined,
-          usage: asRecord(msg.usage) as Usage | undefined,
-        };
-        if (role === 'assistant') streamingMessageIdRef.current = id;
+        if ('content' in msg) parseContentIntoParts(msg.content, parts);
+        const entry: MessageEntry =
+          role === 'assistant'
+            ? {
+                id: msgId,
+                role,
+                parts,
+                model: msg.model,
+                provider: msg.provider,
+                timestamp: msg.timestamp,
+                usage: {
+                  input: msg.usage.input,
+                  output: msg.usage.output,
+                  cacheRead: msg.usage.cacheRead,
+                  cacheWrite: msg.usage.cacheWrite,
+                  totalTokens: msg.usage.totalTokens,
+                },
+              }
+            : { id: msgId, role, parts };
+        if (role === 'assistant') streamingMessageIdRef.current = msgId;
         setCurrentMessages((prev) => {
-          if (prev.some((m) => m.id === id)) return prev;
+          if (prev.some((m) => m.id === msgId)) return prev;
           return [...prev, entry];
         });
         break;
       }
 
       case 'message_update': {
-        const ame = asRecord(event.assistantMessageEvent);
-        const isThinking = ame?.type === 'thinking_delta';
-        const delta: string | undefined =
-          ame?.type === 'text_delta' || ame?.type === 'thinking_delta'
-            ? (ame.delta as string)
-            : undefined;
+        const ame = event.assistantMessageEvent;
+        const isThinking = ame.type === 'thinking_delta';
+        const delta =
+          ame.type === 'text_delta' || ame.type === 'thinking_delta' ? ame.delta : undefined;
         if (!delta) break;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
@@ -1394,31 +1390,28 @@ export default function App() {
       }
 
       case 'message_end': {
-        const m = asRecord(event.message);
-        if (m?.role && m.role !== 'assistant') break;
-        const endTs = typeof m?.timestamp === 'number' ? m.timestamp : undefined;
+        const m = event.message;
+        if (m.role !== 'assistant') break;
+        const endTs = m.timestamp;
         const streamId = streamingMessageIdRef.current;
         setCurrentMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== streamId) return msg;
-            const ts = endTs ?? msg.timestamp;
-            if (m?.content) {
-              const parts: MessagePart[] = [];
-              parseContentIntoParts(m.content, parts);
-              return {
-                ...msg,
-                parts,
-                model: typeof m.model === 'string' ? m.model : msg.model,
-                provider: typeof m.provider === 'string' ? m.provider : msg.provider,
-                timestamp: ts,
-                usage: asRecord(m.usage) ?? msg.usage,
-              };
-            }
+            const parts: MessagePart[] = [];
+            parseContentIntoParts(m.content, parts);
             return {
               ...msg,
-              parts: msg.parts.map((p) => ({ ...p, done: true })),
-              timestamp: ts,
-              usage: asRecord(m?.usage) ?? msg.usage,
+              parts,
+              model: m.model,
+              provider: m.provider,
+              timestamp: endTs ?? msg.timestamp,
+              usage: {
+                input: m.usage.input,
+                output: m.usage.output,
+                cacheRead: m.usage.cacheRead,
+                cacheWrite: m.usage.cacheWrite,
+                totalTokens: m.usage.totalTokens,
+              },
             };
           }),
         );
@@ -1426,22 +1419,21 @@ export default function App() {
       }
 
       case 'tool_execution_start': {
-        const toolCallId = (event.toolCallId || event.id) as string | undefined;
+        const { toolCallId, toolName, args } = event;
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
           const existingIndex = parts.findIndex(
-            (part) => part.type === 'tool' && part.id && toolCallId && part.id === toolCallId,
+            (part) => part.type === 'tool' && part.id && part.id === toolCallId,
           );
-
           if (existingIndex >= 0) {
             const existing = parts[existingIndex];
             parts[existingIndex] = {
               ...existing,
               type: 'tool',
-              name: String(event.toolName || event.name || existing.name || 'tool'),
-              args: event.args ?? existing.args,
+              name: toolName,
+              args,
               content: existing.content ?? '',
               done: false,
               id: toolCallId,
@@ -1451,15 +1443,14 @@ export default function App() {
           } else {
             parts.push({
               type: 'tool',
-              name: String(event.toolName || event.name || 'tool'),
-              args: event.args,
+              name: toolName,
+              args,
               content: '',
               done: false,
               id: toolCallId,
               isError: false,
             });
           }
-
           const next = [...prev];
           next[hit.index] = { ...hit.target, parts };
           return next;
@@ -1468,21 +1459,19 @@ export default function App() {
       }
 
       case 'tool_execution_update': {
-        const toolCallId = event.toolCallId || event.id;
-        const hasPartialResult = event.partialResult !== undefined;
-        const partialEnvelope = hasPartialResult
-          ? getToolResultEnvelope(event.partialResult)
-          : getToolResultEnvelope(event.output);
+        const { toolCallId, args, partialResult } = event;
+        const hasPartialResult = partialResult !== undefined;
+        const partialEnvelope = getToolResultEnvelope(partialResult);
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
           const rev = [...parts].reverse();
           const tool =
-            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done && p.id === toolCallId) ||
             rev.find((p) => p.type === 'tool' && !p.done);
           if (tool) {
-            if (event.args !== undefined) tool.args = event.args;
+            if (args !== undefined) tool.args = args;
             if (hasPartialResult) {
               tool.content = partialEnvelope.text;
             } else if (partialEnvelope.text) {
@@ -1498,22 +1487,20 @@ export default function App() {
       }
 
       case 'tool_execution_end': {
-        const toolCallId = event.toolCallId || event.id;
-        const finalEnvelope = getToolResultEnvelope(event.result ?? event.output ?? '');
-        const shouldReplaceContent = event.result !== undefined || event.output !== undefined;
+        const { toolCallId, result, isError } = event;
+        const finalEnvelope = getToolResultEnvelope(result);
         setCurrentMessages((prev) => {
           const hit = getStreamingTarget(prev);
           if (!hit) return prev;
           const parts = [...hit.target.parts];
           const rev = [...parts].reverse();
           const tool =
-            rev.find((p) => p.type === 'tool' && !p.done && (!toolCallId || p.id === toolCallId)) ||
+            rev.find((p) => p.type === 'tool' && !p.done && p.id === toolCallId) ||
             rev.find((p) => p.type === 'tool' && !p.done);
           if (tool) {
-            if (event.args !== undefined) tool.args = event.args;
             tool.done = true;
-            tool.isError = Boolean(event.isError);
-            if (shouldReplaceContent) tool.content = finalEnvelope.text;
+            tool.isError = isError;
+            tool.content = finalEnvelope.text;
             if (finalEnvelope.details !== undefined) tool.details = finalEnvelope.details;
           }
           const next = [...prev];
@@ -1529,8 +1516,6 @@ export default function App() {
           setCurrentModel(model);
           currentModelRef.current = model;
         }
-        const level = normaliseThinkingLevel(event.thinkingLevel ?? event.level);
-        if (level) setThinkingLevel(level);
         break;
       }
     }

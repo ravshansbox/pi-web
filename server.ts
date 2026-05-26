@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RpcSession, type RpcEvent } from './rpc.js';
-import type { RpcCommand } from '@earendil-works/pi-coding-agent';
+import type { RpcCommand } from './shared/pi-types.js';
 import {
   listSessions,
   readSessionMessages,

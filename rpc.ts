@@ -1,8 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { RpcCommand, RpcResponse } from '@earendil-works/pi-coding-agent';
-import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-
-export type RpcEvent = RpcResponse | AgentSessionEvent | { type: 'model_changed'; model: unknown };
+import type { RpcCommand } from './shared/pi-types.js';
+import type { RpcEvent } from './shared/rpc-event.js';
+export type { RpcEvent } from './shared/rpc-event.js';
 
 interface CommandSpec {
   command: string;

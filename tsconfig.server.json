@@ -10,5 +10,5 @@
     "strict": true
   },
   "exclude": [],
-  "include": ["server.ts", "rpc.ts", "sessions.ts"]
+  "include": ["server.ts", "rpc.ts", "sessions.ts", "shared"]
 }
