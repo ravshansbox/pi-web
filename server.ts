@@ -21,7 +21,8 @@ import {
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { RpcSession } from './rpc.js';
+import { RpcSession, type RpcEvent } from './rpc.js';
+import type { RpcCommand } from '@earendil-works/pi-coding-agent';
 import {
   listSessions,
   readSessionMessages,
@@ -351,12 +352,12 @@ function getSessionRuntimeStatus(
   };
 }
 
-function sendToSocket(ws: WebSocket, payload: any) {
+function sendToSocket(ws: WebSocket, payload: unknown) {
   if (ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(payload));
 }
 
-function broadcast(managed: ManagedRpcSession, payload: any) {
+function broadcast(managed: ManagedRpcSession, payload: unknown) {
   for (const client of managed.clients) {
     sendToSocket(client, payload);
   }
@@ -433,9 +434,9 @@ function detachSocket(ws: WebSocket) {
   cleanupIfIdle(current);
 }
 
-function registerDiscoveredSessionKey(managed: ManagedRpcSession, event: any) {
-  if (event?.type !== 'response' || event?.command !== 'get_state') return;
-  const sessionPath = event?.data?.sessionFile;
+function registerDiscoveredSessionKey(managed: ManagedRpcSession, event: RpcEvent) {
+  if (event.type !== 'response' || event.command !== 'get_state' || !event.success) return;
+  const sessionPath = event.data?.sessionFile;
   if (typeof sessionPath !== 'string' || sessionPath.length === 0) return;
   const key = buildSessionKey(managed.cwd, basename(sessionPath));
   registerManagedSessionKey(managed, key);
@@ -448,17 +449,15 @@ function deriveModelSupportsImages(model: unknown): boolean | null {
   return input.includes('image');
 }
 
-function updateSessionModelCapability(managed: ManagedRpcSession, event: any) {
-  if (!event || typeof event !== 'object') return;
-
+function updateSessionModelCapability(managed: ManagedRpcSession, event: RpcEvent) {
   if (event.type === 'model_changed') {
-    const supports = deriveModelSupportsImages(event.model);
+    const supports = deriveModelSupportsImages((event as { type: 'model_changed'; model: unknown }).model);
     if (supports != null) managed.currentModelSupportsImages = supports;
     return;
   }
 
   if (event.type === 'response') {
-    if (event.command === 'get_state') {
+    if (event.command === 'get_state' && event.success) {
       const supports = deriveModelSupportsImages(event.data?.model);
       if (supports != null) managed.currentModelSupportsImages = supports;
       return;
@@ -485,13 +484,13 @@ function createManagedSession(
     piCmd: AGENT_CMD,
     cwd,
     sessionFile: sessionPath,
-    onEvent: (event) => {
+    onEvent: (event: RpcEvent) => {
       if (!managed) return;
-      if (event?.type === 'agent_start') {
+      if (event.type === 'agent_start') {
         managed.isAgentRunning = true;
         clearIdleCleanupTimer(managed);
       }
-      if (event?.type === 'agent_end') {
+      if (event.type === 'agent_end') {
         managed.isAgentRunning = false;
         cleanupIfIdle(managed);
       }
@@ -592,13 +591,15 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      const command = msg.command;
+      const command = msg.command as RpcCommand;
       const isPromptLikeCommand =
-        command?.type === 'prompt' ||
-        command?.type === 'steer' ||
-        command?.type === 'follow_up';
+        command.type === 'prompt' ||
+        command.type === 'steer' ||
+        command.type === 'follow_up';
       const hasImages =
-        Array.isArray(command?.images) && command.images.length > 0;
+        'images' in command &&
+        Array.isArray(command.images) &&
+        command.images.length > 0;
       if (
         isPromptLikeCommand &&
         hasImages &&

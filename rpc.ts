@@ -1,4 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { RpcCommand, RpcResponse } from '@earendil-works/pi-coding-agent';
+import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+
+export type RpcEvent = RpcResponse | AgentSessionEvent | { type: 'model_changed'; model: unknown };
 
 interface CommandSpec {
   command: string;
@@ -9,7 +13,7 @@ interface RpcSessionOptions {
   piCmd: CommandSpec;
   cwd: string;
   sessionFile?: string;
-  onEvent: (event: any) => void;
+  onEvent: (event: RpcEvent) => void;
   onError: (message: string) => void;
   onExit: (code: number | null) => void;
 }
@@ -62,7 +66,7 @@ export class RpcSession {
     }
   }
 
-  send(command: any): void {
+  send(command: RpcCommand): void {
     if (this.killed || !this.proc.stdin.writable) return;
     this.proc.stdin.write(JSON.stringify(command) + '\n', 'utf-8');
   }
