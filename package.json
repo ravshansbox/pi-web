@@ -10,11 +10,18 @@
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
+  "license": "MIT",
+  "keywords": [
+    "pi",
+    "web",
+    "ui"
+  ],
   "files": [
     "bin",
     "dist",
     "build/server",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "npm run dev:pi",

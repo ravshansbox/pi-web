@@ -1,6 +1,6 @@
 # pi-web
 
-A web UI for the [pi coding agent](https://github.com/badlogic/pi-mono).
+A web UI for the [pi coding agent](https://github.com/earendil-works/pi).
 
 ![pi-web screenshot](https://raw.githubusercontent.com/ravshansbox/pi-web/main/screenshot.png)
 
