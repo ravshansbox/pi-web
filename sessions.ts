@@ -4,13 +4,10 @@ import { homedir } from 'node:os';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
-export type AgentKind = 'pi' | 'omp';
-
 const HOME_DIR = resolve(homedir());
 
-function getSessionDir(agent: AgentKind): string {
-  const configDir = agent === 'omp' ? '.omp' : '.pi';
-  return join(HOME_DIR, configDir, 'agent', 'sessions');
+function getSessionDir(): string {
+  return join(HOME_DIR, '.pi', 'agent', 'sessions');
 }
 
 export interface SessionSummary {
@@ -38,41 +35,28 @@ export interface ParsedMessage {
   };
 }
 
-function cwdToSessionDir(cwd: string, agent: AgentKind): string {
+function cwdToSessionDir(cwd: string): string {
   const normalisedCwd = resolve(cwd);
-
-  if (agent === 'omp') {
-    if (
-      normalisedCwd === HOME_DIR ||
-      normalisedCwd.startsWith(`${HOME_DIR}/`) ||
-      normalisedCwd.startsWith(`${HOME_DIR}\\`)
-    ) {
-      const relative = normalisedCwd.slice(HOME_DIR.length).replace(/^[/\\]/, '');
-      return `-${relative.replace(/[/\\:]/g, '-')}`;
-    }
-  }
-
   const encoded = normalisedCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-');
   return `--${encoded}--`;
 }
 
-export function getSessionFilePath(cwd: string, filename: string, agent: AgentKind = 'pi'): string {
-  return join(getSessionDir(agent), cwdToSessionDir(cwd, agent), filename);
+export function getSessionFilePath(cwd: string, filename: string): string {
+  return join(getSessionDir(), cwdToSessionDir(cwd), filename);
 }
 
 export async function listSessions(opts: {
   cwd?: string;
   limit?: number;
-  agent?: AgentKind;
 }): Promise<SessionSummary[]> {
-  const { cwd, limit = 30, agent = 'pi' } = opts;
+  const { cwd, limit = 30 } = opts;
   const results: SessionSummary[] = [];
-  const sessionDir = getSessionDir(agent);
+  const sessionDir = getSessionDir();
 
   try {
     const cwdDirs = await readdir(sessionDir, { withFileTypes: true });
     const targetDirs = cwd
-      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd, agent))
+      ? cwdDirs.filter((d) => d.isDirectory() && d.name === cwdToSessionDir(cwd))
       : cwdDirs.filter((d) => d.isDirectory());
 
     for (const dir of targetDirs) {

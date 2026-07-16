@@ -22,7 +22,6 @@ import {
   listSessions,
   readSessionMessages,
   getSessionFilePath,
-  type AgentKind,
 } from './sessions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +35,6 @@ Usage: pi-web [options]
 Options:
   --port <number>      Port to listen on (default: 8192)
   --host <string>      Host to bind to (default: 127.0.0.1)
-  --agent <pi|omp>     Agent backend profile (default: pi)
   -h, --help           Show this help message
   `.trim(),
   );
@@ -53,26 +51,9 @@ function getArg(name: string): string | undefined {
   return undefined;
 }
 
-function parseAgent(value?: string): AgentKind {
-  const agent = (value || 'pi').toLowerCase();
-  if (agent === 'pi' || agent === 'omp') return agent;
-  console.error(`invalid --agent value "${value}". expected "pi" or "omp"`);
-  process.exit(1);
-}
-
-function getAgentCommand(agent: AgentKind): {
-  command: string;
-  args: string[];
-} {
-  return agent === 'omp'
-    ? { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] }
-    : { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
-}
-
-const AGENT = parseAgent(getArg('agent'));
+const AGENT_CMD = { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
 const PORT = parseInt(getArg('port') || '8192', 10);
 const HOST = getArg('host') || '127.0.0.1';
-const AGENT_CMD = getAgentCommand(AGENT);
 const IDLE_SESSION_TTL_MS = 60_000;
 const isWatchMode =
   process.argv.includes('--watch') ||
@@ -86,7 +67,7 @@ const distDir =
 const htmlPath = join(distDir, 'index.html');
 const htmlCache = isDev || !existsSync(htmlPath) ? null : readFileSync(htmlPath, 'utf-8');
 const HOME_DIR = resolve(homedir() || '/');
-const SESSION_ROOT = resolve(join(HOME_DIR, AGENT === 'omp' ? '.omp' : '.pi', 'agent', 'sessions'));
+const SESSION_ROOT = resolve(join(HOME_DIR, '.pi', 'agent', 'sessions'));
 
 type FolderEntry = { name: string; path: string };
 
@@ -158,7 +139,7 @@ function isValidSessionFilename(filename: string): boolean {
 
 function resolveSessionPath(cwd: string, filename: string): string | null {
   if (!isValidSessionFilename(filename)) return null;
-  const resolved = resolve(getSessionFilePath(cwd, filename, AGENT));
+  const resolved = resolve(getSessionFilePath(cwd, filename));
   return isWithinRoot(resolved, SESSION_ROOT) ? resolved : null;
 }
 
@@ -177,7 +158,7 @@ const server = createServer((req, res) => {
   if (req.url?.startsWith('/api/sessions')) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const cwd = url.searchParams.get('cwd') || undefined;
-    listSessions({ cwd, limit: 50, agent: AGENT })
+    listSessions({ cwd, limit: 50 })
       .then((data) => {
         const sessionsWithRuntime = data.map((session) => ({
           ...session,
@@ -441,7 +422,7 @@ function createManagedSession(
   sessionFile: string | null,
   initialKey: string,
 ): ManagedRpcSession {
-  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile, AGENT) : undefined;
+  const sessionPath = sessionFile ? getSessionFilePath(cwd, sessionFile) : undefined;
   let managed: ManagedRpcSession | null = null;
 
   const rpc = new RpcSession({

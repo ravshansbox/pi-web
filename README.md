@@ -19,14 +19,7 @@ For remote access, use the **recommended** Tailscale HTTPS setup below.
 ```
 --port <number>      Port to listen on (default: 8192)
 --host <string>      Host to bind to (default: 127.0.0.1)
---agent <pi|omp>     Agent backend profile (default: pi)
 --help               Show help
-```
-
-To run against Oh My Pi, start with:
-
-```bash
-npx -y pi-web@latest --agent omp
 ```
 
 ## Recommended: secure access with Tailscale (HTTPS, no app password)
@@ -93,8 +86,7 @@ Notes:
 git clone https://github.com/ravshansbox/pi-web
 cd pi-web
 npm install
-npm run dev:pi   # Pi backend
-npm run dev:omp  # Oh My Pi backend
+npm run dev
 ```
 
 Requires Node.js 22+.

@@ -65,21 +65,8 @@ function inlineFormat(text) {
   return out;
 }
 
-function cwdToSessionDir(cwd, agent, homeDir) {
-  const normalisedCwd = cwd;
-
-  if (agent === 'omp') {
-    if (
-      normalisedCwd === homeDir ||
-      normalisedCwd.startsWith(`${homeDir}/`) ||
-      normalisedCwd.startsWith(`${homeDir}\\`)
-    ) {
-      const relative = normalisedCwd.slice(homeDir.length).replace(/^[/\\]/, '');
-      return `-${relative.replace(/[/\\:]/g, '-')}`;
-    }
-  }
-
-  const encoded = normalisedCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-');
+function cwdToSessionDir(cwd) {
+  const encoded = cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-');
   return `--${encoded}--`;
 }
 
@@ -97,8 +84,7 @@ assert.match(
   /href="https:\/\/example\.com\?q=&amp;quot;x&amp;quot;"/,
 );
 
-assert.equal(cwdToSessionDir('/Users/test/project', 'pi', '/Users/test'), '--Users-test-project--');
-assert.equal(cwdToSessionDir('/Users/test/project', 'omp', '/Users/test'), '-project');
-assert.equal(cwdToSessionDir('/tmp/project', 'omp', '/Users/test'), '--tmp-project--');
+assert.equal(cwdToSessionDir('/Users/test/project'), '--Users-test-project--');
+assert.equal(cwdToSessionDir('/tmp/project'), '--tmp-project--');
 
 console.log('smoke checks passed');

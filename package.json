@@ -24,9 +24,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "npm run dev:pi",
-    "dev:pi": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js --agent pi\"",
-    "dev:omp": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js --agent omp\"",
+    "dev": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "build:bin": "node scripts/generate-bin.mjs",
     "test:smoke": "node scripts/smoke-checks.mjs",
