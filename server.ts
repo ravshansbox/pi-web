@@ -18,11 +18,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RpcSession, type RpcEvent } from './rpc.js';
 import type { RpcCommand } from './shared/pi-types.js';
-import {
-  listSessions,
-  readSessionMessages,
-  getSessionFilePath,
-} from './sessions.js';
+import { listSessions, readSessionMessages, getSessionFilePath } from './sessions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
