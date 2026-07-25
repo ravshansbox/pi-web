@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { createReadStream, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import {
@@ -47,7 +48,31 @@ function getArg(name: string): string | undefined {
   return undefined;
 }
 
-const AGENT_CMD = { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
+function resolveAgentCmd(): { command: string; args: string[] } {
+  // Allow override via env var, e.g. PI_WEB_PI_CMD='{"command":"pi","args":[]}'
+  const override = process.env.PI_WEB_PI_CMD;
+  if (override) {
+    try {
+      const parsed = JSON.parse(override);
+      if (parsed && typeof parsed.command === 'string') return parsed;
+    } catch {
+      // fall through to default
+    }
+  }
+  // Prefer the locally installed `pi` binary: faster, and uses the user's
+  // installed version (with their config/extensions) instead of pulling the
+  // latest via npx (which also emits npm deprecation warnings to stderr that
+  // get surfaced to the UI as errors).
+  try {
+    execSync('command -v pi', { stdio: 'ignore' });
+    return { command: 'pi', args: [] };
+  } catch {
+    // Fall back to npx for environments where pi is not installed.
+    return { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
+  }
+}
+
+const AGENT_CMD = resolveAgentCmd();
 const PORT = parseInt(getArg('port') || '8192', 10);
 const HOST = getArg('host') || '127.0.0.1';
 const IDLE_SESSION_TTL_MS = 60_000;
