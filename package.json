@@ -1,21 +1,16 @@
 {
-  "name": "pi-web",
-  "version": "0.0.0",
+  "name": "@ravshansbox/pi-web",
+  "version": "0.14.3",
   "type": "module",
   "description": "Web UI for the pi coding agent",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ravshansbox/pi-web.git"
+    "url": "git+https://github.com/ravshansbox/pi-web.git"
   },
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
   "license": "MIT",
-  "keywords": [
-    "pi",
-    "web",
-    "ui"
-  ],
   "files": [
     "bin",
     "dist",
@@ -27,7 +22,6 @@
     "dev": "concurrently \"vite build --watch\" \"tsc -w -p tsconfig.server.json\" \"node --watch build/server/server.js\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "build:bin": "node scripts/generate-bin.mjs",
-    "test:smoke": "node scripts/smoke-checks.mjs",
     "preview": "vite preview",
     "start": "node build/server/server.js",
     "prepack": "npm run build && npm run build:bin",
@@ -35,13 +29,14 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check"
   },
   "dependencies": {
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^26.0.0",
@@ -61,5 +56,17 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0",
     "vite": "^8.1.0"
-  }
+  },
+  "homepage": "https://github.com/ravshansbox/pi-web#readme",
+  "bugs": {
+    "url": "https://github.com/ravshansbox/pi-web/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-web",
+    "ui"
+  ]
 }

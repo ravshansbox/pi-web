@@ -1,31 +1,38 @@
-name: Publish
+name: Publish to npm
 
 on:
-  push:
-    branches:
-      - main
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    environment: npm-publish
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
-      - name: Install
+      - name: Install dependencies
         run: npm ci
 
-      - name: Check types, lint, and format
-        run: npm run typecheck && npm run lint && npm run format:check
+      - name: Verify release tag
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - name: Check package
+        run: npm run check
 
       - name: Build artefacts
         run: npm run build && npm run build:bin
@@ -37,56 +44,7 @@ jobs:
           npm pack --json --dry-run > pack.json
           node -e "const fs=require('node:fs');const pack=JSON.parse(fs.readFileSync('pack.json','utf8'))?.[0];const files=pack?.files?.map(f=>f.path)||[];if(!files.includes('bin/pi-web.js')){console.error('bin/pi-web.js is missing from the publish artefact');process.exit(1);}"
 
-      - name: Determine release version
-        id: version
-        run: |
-          LAST_TAG=$(git for-each-ref --count=1 --sort=-version:refname --format='%(refname:short)' refs/tags/v*)
-          if [ -n "$LAST_TAG" ]; then
-            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:'%s%n%b%n---')
-            BASE_VERSION="${LAST_TAG#v}"
-          else
-            COMMITS=$(git log --pretty=format:'%s%n%b%n---')
-            BASE_VERSION=$(node -e "const fs=require('node:fs');process.stdout.write(JSON.parse(fs.readFileSync('package.json','utf8')).version)")
-          fi
-
-          if [ -z "$COMMITS" ]; then
-            echo "No commits available for release inference"
-            exit 1
-          fi
-
-          BUMP=patch
-          if printf '%s\n' "$COMMITS" | grep -qiE 'BREAKING CHANGE|^[a-z]+(\(.+\))?!:'; then
-            BUMP=major
-          elif printf '%s\n' "$COMMITS" | grep -qiE '^feat(\(.+\))?:'; then
-            BUMP=minor
-          fi
-
-          NEXT_VERSION=$(node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); const bump = process.argv[2]; if ([major, minor, patch].some(Number.isNaN)) { process.exit(1); } const next = bump === 'major' ? [major + 1, 0, 0] : bump === 'minor' ? [major, minor + 1, 0] : [major, minor, patch + 1]; process.stdout.write(next.join('.'));" "$BASE_VERSION" "$BUMP")
-          if git tag --list "v$NEXT_VERSION" | grep -q .; then
-            echo "Release tag v$NEXT_VERSION already exists"
-            exit 1
-          fi
-
-          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
-          echo "new=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Set package version
-        run: npm version "${{ steps.version.outputs.new }}" --no-git-tag-version
-
-      - name: Publish to npm
-        run: npm publish --access public
+      - name: Publish
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: true
-
-      - name: Create and push tag
-        run: |
-          git tag "v${{ steps.version.outputs.new }}"
-          git push origin "v${{ steps.version.outputs.new }}"
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "v${{ steps.version.outputs.new }}" \
-            --title "v${{ steps.version.outputs.new }}" \
-            --generate-notes
+        run: npm publish
