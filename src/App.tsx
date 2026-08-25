@@ -346,8 +346,7 @@ function formatTailPreviewLines(lines: string[], maxLines: number): string {
 
 type DiffLine = { type: 'add' | 'delete' | 'context'; content: string };
 type ToolDisplayResult =
-  | { kind: 'text'; text: string }
-  | { kind: 'diff'; header: string; lines: DiffLine[] };
+  { kind: 'text'; text: string } | { kind: 'diff'; header: string; lines: DiffLine[] };
 
 function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
   const name = part.name || 'tool';
@@ -1518,6 +1517,23 @@ export default function App() {
         }
         break;
       }
+
+      case 'extension_ui_request': {
+        if (event.method === 'notify') {
+          const message = event.message;
+          if (typeof message === 'string' && message.trim()) {
+            const id = event.id || crypto.randomUUID();
+            const content = message.includes('\n') ? fencePreformatted(message) : message;
+            const entry: MessageEntry = {
+              id,
+              role: 'system',
+              parts: [{ type: 'text', content, done: true }],
+            };
+            setCurrentMessages((prev) => (prev.some((m) => m.id === id) ? prev : [...prev, entry]));
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -2498,6 +2514,14 @@ function ToolPart({ part }: { part: MessagePart }) {
       </pre>
     </div>
   );
+}
+
+// Multi-line notify output (e.g. the /acp status panel) must keep its spacing;
+// formatText collapses whitespace in plain lines, so wrap it in a code fence to
+// render as a <pre> block.
+function fencePreformatted(text: string): string {
+  const body = text.replace(/\n+$/, '');
+  return '```\n' + body + '\n```';
 }
 
 function formatText(raw: string): string {
