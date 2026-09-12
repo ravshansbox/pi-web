@@ -86,7 +86,7 @@ type SessionStats = {
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
 const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
-const EXTERNAL_SESSION_SYNC_INTERVAL_MS = 1200;
+const EXTERNAL_SESSION_SYNC_INTERVAL_MS = 5000;
 
 function asHomeRelativePath(cwd: string): string {
   return cwd.replace(/^\/Users\/[^/]+(?=\/|$)/, '~').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
@@ -579,6 +579,7 @@ export default function App() {
   const currentModelRef = useRef<Model | null>(null);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const activeSessionFileRef = useRef<string | null>(null);
+  const lastActivatedRouteRef = useRef<string | null>(null);
   const hasActiveSessionRef = useRef(false);
   const pendingSessionRef = useRef<{
     cwd?: string;
@@ -854,6 +855,11 @@ export default function App() {
       }
     };
 
+    ws.__heartbeatTimer = window.setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 4000);
     ws.onmessage = (event) => {
       let msg: Record<string, unknown>;
       try {
@@ -886,13 +892,17 @@ export default function App() {
     };
 
     ws.onclose = () => {
+      if (ws.__heartbeatTimer) {
+        window.clearInterval(ws.__heartbeatTimer);
+        ws.__heartbeatTimer = null;
+      }
       setIsConnected(false);
       setIsStreaming(false);
       setHasActiveSession(false);
-      pendingSessionRef.current = null;
+      // Preserve pendingSessionRef / activeRpcSessionRef: the 1s reconnect below
+      // re-runs onopen → startSession() to restore the session transparently.
       sessionRouteSyncAttemptsRef.current.clear();
-      activeRpcSessionRef.current = null;
-      reconnectTimerRef.current = window.setTimeout(connect, 2000);
+      reconnectTimerRef.current = window.setTimeout(connect, 1000);
     };
   }
 
@@ -1611,6 +1621,13 @@ export default function App() {
       activateNewSession(selectedProjectCwd);
       return;
     }
+
+    // Skip when the route (cwd + session) did not actually change: this effect
+    // also re-runs whenever `sessions` refreshes, and a full re-activation here
+    // would reset the composer (wiping unsent input) mid-typing.
+    const routeKey = `${selectedProjectCwd}|${sessionIdParam}`;
+    if (lastActivatedRouteRef.current === routeKey) return;
+    lastActivatedRouteRef.current = routeKey;
 
     if (!activeSessionFile) return;
     const exists = sessions.some(
