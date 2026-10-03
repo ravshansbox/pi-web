@@ -87,6 +87,7 @@ git clone https://github.com/ravshansbox/pi-web
 cd pi-web
 npm install
 npm run dev
+npm run check
 ```
 
 Requires Node.js 22+.
