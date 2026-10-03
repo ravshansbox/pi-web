@@ -47,7 +47,43 @@ function getArg(name: string): string | undefined {
   return undefined;
 }
 
-const AGENT_CMD = { command: 'npx', args: ['-y', '@earendil-works/pi-coding-agent@latest'] };
+type AgentCmd = { command: string; args: string[]; shell?: boolean };
+
+// Resolve a spawn-safe command for the pi backend.
+//
+// A bare `npx` cannot be spawned without a shell on Windows: npm installs
+// it as npx.cmd only (no npx.exe), so spawn('npx') fails with ENOENT and
+// the backend never starts at all (#9). Resolution order:
+//   1. PI_WEB_PI_CMD override, e.g. PI_WEB_PI_CMD="node /path/to/cli.js"
+//   2. the globally installed pi, run via process.execPath — a real
+//      executable: no shell needed, no per-session npx registry round-trip,
+//      works offline, and kill() terminates the actual child process
+//   3. upstream npx behavior, plus a shell on win32 so it at least runs
+function resolveAgentCmd(): AgentCmd {
+  const override = String(process.env.PI_WEB_PI_CMD || '').trim();
+  if (override) {
+    const parts = override.split(/\s+/);
+    return { command: parts[0], args: parts.slice(1) };
+  }
+  const cliCandidates = [
+    join(homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js'),
+    join(homedir(), '.bun', 'install', 'global', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js'),
+    '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js',
+    '/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js',
+  ];
+  for (const cli of cliCandidates) {
+    if (existsSync(cli)) {
+      return { command: process.execPath, args: [cli] };
+    }
+  }
+  return {
+    command: 'npx',
+    args: ['-y', '@earendil-works/pi-coding-agent@latest'],
+    shell: process.platform === 'win32',
+  };
+}
+
+const AGENT_CMD = resolveAgentCmd();
 const PORT = parseInt(getArg('port') || '8192', 10);
 const HOST = getArg('host') || '127.0.0.1';
 const IDLE_SESSION_TTL_MS = 60_000;
