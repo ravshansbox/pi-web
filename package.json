@@ -1,5 +1,5 @@
 {
-  "name": "@ravshansbox/pi-web",
+  "name": "pi-web",
   "version": "0.15.0",
   "type": "module",
   "description": "Web UI for the pi coding agent",
