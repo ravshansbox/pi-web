@@ -188,8 +188,7 @@ async function readSessionHeader(filePath: string): Promise<SessionSummary | nul
             firstPrompt = content.slice(0, 120);
           } else if (Array.isArray(content)) {
             const text = content.find((c: unknown) => (c as { type?: string }).type === 'text') as
-              | { text?: string }
-              | undefined;
+              { text?: string } | undefined;
             if (text?.text) firstPrompt = text.text.slice(0, 120);
           }
         }

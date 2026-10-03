@@ -346,8 +346,7 @@ function formatTailPreviewLines(lines: string[], maxLines: number): string {
 
 type DiffLine = { type: 'add' | 'delete' | 'context'; content: string };
 type ToolDisplayResult =
-  | { kind: 'text'; text: string }
-  | { kind: 'diff'; header: string; lines: DiffLine[] };
+  { kind: 'text'; text: string } | { kind: 'diff'; header: string; lines: DiffLine[] };
 
 function formatToolExecutionForDisplay(part: MessagePart): ToolDisplayResult {
   const name = part.name || 'tool';
