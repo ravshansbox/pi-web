@@ -2508,11 +2508,11 @@ function formatText(raw: string): string {
   while (i < lines.length) {
     const line = lines[i];
 
-    if (/^```/.test(line)) {
+    if (line.startsWith('```')) {
       const lang = line.slice(3).trim();
       const code: string[] = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) {
+      while (i < lines.length && !lines[i].startsWith('```')) {
         code.push(escapeHtml(lines[i]));
         i++;
       }
@@ -2523,12 +2523,12 @@ function formatText(raw: string): string {
       continue;
     }
 
-    if (/^\|/.test(line) && i + 1 < lines.length && /^\|[\s\-:|]+\|/.test(lines[i + 1])) {
+    if (line.startsWith('|') && i + 1 < lines.length && /^\|[\s\-:|]+\|/.test(lines[i + 1])) {
       const headers = parseTableRow(lines[i]);
       const aligns = parseTableAligns(lines[i + 1]);
       i += 2;
       const rows: string[][] = [];
-      while (i < lines.length && /^\|/.test(lines[i])) {
+      while (i < lines.length && lines[i].startsWith('|')) {
         rows.push(parseTableRow(lines[i]));
         i++;
       }
