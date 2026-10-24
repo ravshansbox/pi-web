@@ -38,7 +38,7 @@
     "start": "node build/server/server.js",
     "prepack": "npm run build && npm run build:bin",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "lint": "oxlint",
+    "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
