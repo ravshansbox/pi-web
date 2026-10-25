@@ -485,6 +485,7 @@ wss.on('connection', (ws: WebSocket) => {
     } catch {
       return;
     }
+    if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'start_session') {
       const cwd =
@@ -529,6 +530,7 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       const command = msg.command as RpcCommand;
+      if (!command || typeof command !== 'object') return;
       const isPromptLikeCommand =
         command.type === 'prompt' || command.type === 'steer' || command.type === 'follow_up';
       const hasImages =
