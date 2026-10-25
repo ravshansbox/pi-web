@@ -75,3 +75,12 @@ test('survives malformed websocket messages', async (t) => {
   assert.equal(proc.exitCode, null);
   assert.equal(await get(port, '/api/folders'), 200);
 });
+
+test('survives an invalid host header or path', async (t) => {
+  const { port, proc } = await startServer(t);
+  await get(port, '/api/folders', { Host: '[' }).catch(() => {});
+  await get(port, '//[', { Accept: 'text/html' }).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(proc.exitCode, null);
+  assert.equal(await get(port, '/api/folders'), 200);
+});

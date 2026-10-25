@@ -140,6 +140,12 @@ function resolveSessionPath(cwd: string, filename: string): string | null {
 }
 
 const server = createServer((req, res) => {
+  if (!URL.canParse(req.url ?? '', 'http://localhost')) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('bad request');
+    return;
+  }
+
   if (req.url === '/' || req.url === '/index.html') {
     if (!existsSync(htmlPath)) {
       res.writeHead(503, { 'Content-Type': 'text/plain' });
@@ -152,7 +158,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.url?.startsWith('/api/sessions')) {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, 'http://localhost');
     const cwd = url.searchParams.get('cwd') || undefined;
     listSessions({ cwd, limit: 50 })
       .then((data) => {
@@ -170,7 +176,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.url?.startsWith('/api/folders')) {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, 'http://localhost');
     const cwd = url.searchParams.get('cwd');
 
     listFolders(cwd)
@@ -185,7 +191,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.url?.startsWith('/api/session?')) {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, 'http://localhost');
     const cwd = url.searchParams.get('cwd');
     const filename = url.searchParams.get('filename');
     if (!cwd || !filename) {
@@ -225,7 +231,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.url) {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, 'http://localhost');
     const safePath = normalize(url.pathname)
       .replace(/^(\.\.[/\\])+/, '')
       .replace(/^[/\\]+/, '');
