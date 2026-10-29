@@ -258,7 +258,17 @@ const server = createServer((req, res) => {
   res.end('not found');
 });
 
-const wss = new WebSocketServer({ server });
+function isSameOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  if (!URL.canParse(origin)) return false;
+  return new URL(origin).host === req.headers.host;
+}
+
+const wss = new WebSocketServer({
+  server,
+  verifyClient: ({ req }: { req: IncomingMessage }) => isSameOrigin(req),
+});
 
 type ManagedRpcSession = {
   cwd: string;

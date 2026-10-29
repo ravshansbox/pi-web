@@ -84,3 +84,22 @@ test('survives an invalid host header or path', async (t) => {
   assert.equal(proc.exitCode, null);
   assert.equal(await get(port, '/api/folders'), 200);
 });
+
+function openWs(port, headers) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers });
+    ws.on('open', () => {
+      ws.close();
+      resolve('open');
+    });
+    ws.on('unexpected-response', (_req, res) => resolve(res.statusCode));
+    ws.on('error', () => resolve('error'));
+  });
+}
+
+test('rejects websocket connections from other origins', async (t) => {
+  const { port } = await startServer(t);
+  assert.equal(await openWs(port, { Origin: 'https://evil.example' }), 401);
+  assert.equal(await openWs(port, { Origin: `http://127.0.0.1:${port}` }), 'open');
+  assert.equal(await openWs(port, {}), 'open');
+});
