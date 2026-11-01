@@ -46,22 +46,22 @@
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
-    "ws": "^8.22.0"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
-    "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-router-dom": "^7.18.4",
+    "react-router-dom": "^7.18.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
