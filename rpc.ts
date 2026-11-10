@@ -6,6 +6,8 @@ export type { RpcEvent } from './shared/rpc-event.js';
 interface CommandSpec {
   command: string;
   args: string[];
+  /** Spawn through a shell (required for .cmd shims like npx on Windows). */
+  shell?: boolean;
 }
 
 interface RpcSessionOptions {
@@ -30,6 +32,7 @@ export class RpcSession {
 
     this.proc = spawn(cmd, args, {
       cwd: opts.cwd,
+      shell: opts.piCmd.shell === true,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     });
